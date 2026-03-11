@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { QrCode, Users, CheckCircle2, Coffee, LogOut, Search, X, ScanLine, AlertTriangle, Loader2, Keyboard, UserCheck, Utensils, Hash } from "lucide-react";
+import { QrCode, Users, CheckCircle2, Coffee, LogOut, Search, X, ScanLine, AlertTriangle, Loader2, Keyboard, UserCheck, Utensils, Hash, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { QRScanner } from "@/components/volunteer/QRScanner";
 import { supabase } from "@/lib/supabase";
@@ -10,6 +10,10 @@ import { supabase } from "@/lib/supabase";
 type ScanMode = "is_present" | "lunch_received" | "snacks_received";
 
 export default function VolunteerDashboard() {
+  // Auth State
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [authMessage, setAuthMessage] = useState("Verifying secure access...");
+
   const [isScanning, setIsScanning] = useState(false);
   const [scanState, setScanState] = useState<"idle" | "processing" | "verify_team" | "success" | "error" | "camera_blocked">("idle");
   const [scanMessage, setScanMessage] = useState("");
@@ -23,6 +27,30 @@ export default function VolunteerDashboard() {
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [stats, setStats] = useState({ checkedIn: 0, lunches: 0, snacks: 0 });
+
+  useEffect(() => {
+    const verifyAccess = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (error || !user) {
+        setAuthMessage("Authentication required. Redirecting to login...");
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+      }
+
+      const role = user.user_metadata?.role;
+      if (role !== "volunteer" && role !== "admin") {
+        setAuthMessage("Access Denied: Volunteer privileges required. Redirecting...");
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+      }
+
+      setIsAuthorized(true);
+      fetchLiveVenueData();
+    };
+
+    verifyAccess();
+  }, []);
 
   const fetchLiveVenueData = async () => {
     try {
@@ -75,10 +103,10 @@ export default function VolunteerDashboard() {
   };
 
   useEffect(() => {
-    fetchLiveVenueData();
+    if (!isAuthorized) return; // Don't poll if not authorized
     const interval = setInterval(fetchLiveVenueData, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthorized]);
 
   const handleQRScan = async (input: string) => {
     const trimmedInput = input.trim();
@@ -91,16 +119,15 @@ export default function VolunteerDashboard() {
       let providedUserId = null;
       let providedMode = null;
 
-      // 1. Determine if it's a Manual Entry (number) or a QR Scan (JSON string)
       const isNumeric = /^\d+$/.test(trimmedInput);
 
       if (!isNumeric) {
         try {
           const payload = JSON.parse(trimmedInput);
-          teamIdToSearch = payload.teamId || payload.id; // backward compatibility
+          teamIdToSearch = payload.teamId || payload.id; 
           providedToken = payload.token;
-          providedUserId = payload.userId; // The specific person showing the phone
-          providedMode = payload.mode; // The specific pass they generated
+          providedUserId = payload.userId; 
+          providedMode = payload.mode; 
         } catch (e) {
           if (trimmedInput.length > 20) {
             throw new Error("Invalid QR Format. Ask candidate to regenerate.");
@@ -108,7 +135,6 @@ export default function VolunteerDashboard() {
         }
       }
 
-      // 2. Query the Database for the Team
       let query = supabase
         .from('teams')
         .select(`
@@ -133,9 +159,7 @@ export default function VolunteerDashboard() {
         throw new Error("Invalid Code or Team not found.");
       }
 
-      // 3. SECURITY CHECK: Verify Token, Expiry, and Correct Pass Mode
       if (!isNumeric) {
-        // Prevent someone from using a Snacks QR code at the Lunch line
         if (providedMode && providedMode !== activeMode) {
           const modeNames: Record<string, string> = {
             is_present: "Check-In",
@@ -157,14 +181,11 @@ export default function VolunteerDashboard() {
         }
       }
 
-      // 4. SMART ROUTING: Instant Scan vs Roster Selection
-      // If we are doing Check-In OR if it was a manual number entry without a specific userId -> Show Roster
       if (activeMode === "is_present" || isNumeric || !providedUserId) {
         setVerifyingTeam(team);
         setSelectedMembers(new Set());
         setScanState("verify_team");
       } 
-      // If we are doing Lunch/Snacks and we have a specific candidate's QR -> INSTANT APPROVAL
       else {
         const candidate = team.candidates.find((c: any) => c.id === providedUserId);
         
@@ -176,7 +197,6 @@ export default function VolunteerDashboard() {
           throw new Error(`Already Claimed: ${candidate.full_name} has already received this.`);
         }
 
-        // Instantly update database
         const { error: updateError } = await supabase
           .from('candidates')
           .update({ [activeMode]: true })
@@ -189,7 +209,7 @@ export default function VolunteerDashboard() {
         const modeLabels = {
           lunch_received: "Lunch Distributed",
           snacks_received: "Snacks Distributed",
-          is_present: "Checked In" // Fallback
+          is_present: "Checked In" 
         };
 
         setScanState("success");
@@ -266,6 +286,24 @@ export default function VolunteerDashboard() {
     setIsScanning(false);
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/'; 
+  };
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
+        {authMessage.includes("Denied") || authMessage.includes("required") ? (
+          <ShieldAlert className="text-red-500 mb-4" size={48} />
+        ) : (
+          <Loader2 className="animate-spin mb-4" size={48} />
+        )}
+        <p className="font-mono tracking-widest text-xs uppercase text-gray-400 text-center max-w-xs">{authMessage}</p>
+      </div>
+    );
+  }
+
   const filteredTeams = liveTeams.filter(t => 
     t.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     t.teamNumber.toString() === searchQuery ||
@@ -273,9 +311,9 @@ export default function VolunteerDashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30">
       
-      <nav className="sticky top-0 z-40 bg-black/80 backdrop-blur-md border-b border-white/10 px-4 py-3 flex justify-between items-center">
+      <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-md border-b border-white/10 px-4 py-3 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="bg-cyan-600/20 p-2 rounded-lg border border-cyan-500/30">
             <QrCode className="text-cyan-400" size={20} />
@@ -285,9 +323,9 @@ export default function VolunteerDashboard() {
             <p className="text-xs text-gray-400 font-mono">LIVE VENUE</p>
           </div>
         </div>
-        <Link href="/" className="text-gray-400 hover:text-red-400 transition-colors p-2">
-          <LogOut size={20} />
-        </Link>
+        <button onClick={handleLogout} className="text-gray-400 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-full border border-white/5">
+          <LogOut size={16} />
+        </button>
       </nav>
 
       <main className="p-4 pb-32 max-w-3xl mx-auto">
@@ -386,7 +424,7 @@ export default function VolunteerDashboard() {
       </div>
 
       {isScanning && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-[#050505] flex flex-col overflow-hidden">
           
           <div className="flex justify-between items-center p-6 pb-0 shrink-0">
             <div>

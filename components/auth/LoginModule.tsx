@@ -28,15 +28,22 @@ export const LoginModule = () => {
 
       if (authError) throw authError;
 
-      // 2. Route them based on the tab they selected
+      const userMeta = data.user?.user_metadata || {};
+
+      // 2. Secure Routing & Role Validation
       if (loginType === "candidate") {
-        // Security check: Make sure they are actually a candidate
-        const teamId = data.user?.user_metadata?.team_id;
-        if (!teamId) throw new Error("This account is not registered as a candidate.");
-        
+        // Must have a team_id to be a candidate
+        if (!userMeta.team_id) {
+          await supabase.auth.signOut();
+          throw new Error("Unauthorized. This account is not a registered candidate.");
+        }
         window.location.href = '/candidate/dashboard';
       } else {
-        // Route to volunteer dashboard
+        // Must explicitly have the role of volunteer or admin
+        if (userMeta.role !== "volunteer" && userMeta.role !== "admin") {
+          await supabase.auth.signOut();
+          throw new Error("Access Denied. You do not have volunteer privileges.");
+        }
         window.location.href = '/volunteer/dashboard';
       }
 
@@ -50,7 +57,6 @@ export const LoginModule = () => {
 
   return (
     <div className="w-full flex flex-col">
-      {/* Toggle Switch */}
       <div className="flex p-1 bg-white/5 rounded-lg mb-6 border border-white/10">
         <button
           type="button"
@@ -72,7 +78,6 @@ export const LoginModule = () => {
         </button>
       </div>
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-lg mb-4 text-xs flex items-start gap-2">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
@@ -80,7 +85,6 @@ export const LoginModule = () => {
         </div>
       )}
 
-      {/* Login Form */}
       <form onSubmit={handleLogin} className="flex flex-col gap-4">
         <div className="relative">
           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />

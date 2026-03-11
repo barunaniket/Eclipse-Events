@@ -9,12 +9,13 @@ import { supabase } from "@/lib/supabase";
 type QRMode = 'is_present' | 'lunch_received' | 'snacks_received';
 
 export default function CandidateDashboard() {
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [authMessage, setAuthMessage] = useState("Verifying event pass...");
+
   const [team, setTeam] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false); 
   
-  // Tabs & Security State
   const [qrMode, setQrMode] = useState<QRMode>('is_present');
   const [qrVisible, setQrVisible] = useState(false);
   const [qrToken, setQrToken] = useState<string | null>(null); 
@@ -30,12 +31,17 @@ export default function CandidateDashboard() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
       if (authError || !user) {
-        window.location.href = '/'; 
+        setAuthMessage("Authentication required. Redirecting to login...");
+        setTimeout(() => window.location.href = '/', 2000);
         return;
       }
 
       const teamId = user.user_metadata?.team_id;
-      if (!teamId) throw new Error("No team associated with this account.");
+      if (!teamId) {
+        setAuthMessage("Access Denied: You are not assigned to a team. Redirecting...");
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+      }
 
       const { data: teamData, error: teamError } = await supabase
         .from('teams')
@@ -61,24 +67,23 @@ export default function CandidateDashboard() {
         track: teamData.tracks?.title || "Unknown Track",
         members: teamData.candidates.sort((a: any, b: any) => b.is_leader - a.is_leader)
       });
+      
+      setIsAuthorized(true);
 
     } catch (err) {
       console.error("Failed to load dashboard:", err);
-    } finally {
-      setIsLoading(false);
+      setAuthMessage("Error loading pass data. Please try logging in again.");
+      setTimeout(() => window.location.href = '/', 2500);
     }
   };
 
-  // 1. Setup Real-time updates
   useEffect(() => {
     fetchTeamData();
     
-    // Listen for any updates to the candidates table
     const subscription = supabase
       .channel('public:candidates')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates' }, 
         () => { 
-          // Refetch data when a volunteer scans and updates the DB
           fetchTeamData(); 
         }
       )
@@ -87,7 +92,6 @@ export default function CandidateDashboard() {
     return () => { supabase.removeChannel(subscription); };
   }, []);
 
-  // 2. Instantly kill the QR code if the real-time update says they are verified
   useEffect(() => {
     if (currentUser && currentUser[qrMode]) {
       setQrVisible(false);
@@ -96,7 +100,6 @@ export default function CandidateDashboard() {
     }
   }, [currentUser, qrMode]);
 
-  // 30-Second Security Timer Logic
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (qrVisible && countdown > 0 && currentUser && !currentUser[qrMode]) {
@@ -142,16 +145,19 @@ export default function CandidateDashboard() {
     window.location.href = '/'; 
   };
 
-  if (isLoading) {
+  // Show security loading/rejection screen if not fully authorized yet
+  if (!isAuthorized || !team || !currentUser) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
-        <Loader2 className="animate-spin mb-4" size={48} />
-        <p className="font-mono tracking-widest text-xs uppercase text-gray-500">Loading Event Pass...</p>
+        {authMessage.includes("Denied") || authMessage.includes("Error") ? (
+          <ShieldAlert className="text-red-500 mb-4 animate-in zoom-in" size={48} />
+        ) : (
+          <Loader2 className="animate-spin mb-4" size={48} />
+        )}
+        <p className="font-mono tracking-widest text-xs uppercase text-gray-400 text-center max-w-xs">{authMessage}</p>
       </div>
     );
   }
-
-  if (!team || !currentUser) return null;
 
   const isClaimed = currentUser[qrMode];
   
@@ -173,7 +179,6 @@ export default function CandidateDashboard() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30 pb-24">
-      
       <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 px-5 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="bg-gradient-to-br from-cyan-500 to-blue-600 p-1.5 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)]">
