@@ -79,7 +79,3 @@ Register a new team with members.
 
 ### POST /api/generate-qr
 Generate a 30-second secure QR token.
-
-## License
-
-ISC
