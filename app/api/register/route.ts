@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function POST(request: Request) {
-  // Track IDs for rollback purposes
   const createdAuthIds: string[] = [];
   let createdTeamId: string | null = null;
 
@@ -11,7 +10,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { teamName, trackId, teamSize, receiptUrl, members } = body;
 
-    // Normalize inputs
     const emails = members.map((m: any) => m.email.trim().toLowerCase());
     const srns = members.map((m: any) => m.srn.trim().toUpperCase());
 
@@ -35,44 +33,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
     }
 
-    // 3. CAPACITY CHECK: Prevent Race Conditions (Overbooking)
-    const { data: trackData, error: trackError } = await supabaseAdmin
-      .from('tracks')
-      .select('max_teams, teams(count)')
-      .eq('id', trackId)
-      .single();
-
-    if (trackError || !trackData) {
-      return NextResponse.json({ error: "Invalid track selected." }, { status: 400 });
-    }
-
-    const currentTeamsCount = trackData.teams[0]?.count || 0;
-    if (currentTeamsCount >= trackData.max_teams) {
-      return NextResponse.json({ error: "Registration failed. This track just reached its maximum capacity." }, { status: 400 });
-    }
-
-    // 4. Insert the Team Record
-    const { data: teamData, error: teamError } = await supabaseAdmin
-      .from('teams')
-      .insert({
-        team_name: teamName,
-        track_id: trackId,
-        team_size: teamSize,
-        receipt_url: receiptUrl,
-        // payment_status: 'pending' -> Note: Add this column to your DB later!
-      })
-      .select('id, team_number')
-      .single();
+    // 3. ATOMIC CAPACITY CHECK & INSERTION (RPC)
+    // This entirely eliminates the race condition
+    const { data: teamData, error: teamError } = await supabaseAdmin.rpc(
+      'register_team_with_capacity_check', 
+      {
+        p_team_name: teamName,
+        p_track_id: trackId,
+        p_team_size: teamSize,
+        p_receipt_url: receiptUrl
+      }
+    );
 
     if (teamError) {
+      if (teamError.message.includes('TRACK_FULL')) {
+        return NextResponse.json({ error: "Registration failed. This track just reached its maximum capacity." }, { status: 400 });
+      }
+      if (teamError.message.includes('INVALID_TRACK')) {
+        return NextResponse.json({ error: "Invalid track selected." }, { status: 400 });
+      }
       return NextResponse.json({ error: "Failed to create team. The team name might already be taken." }, { status: 400 });
     }
 
-    createdTeamId = teamData.id;
-    const teamId = teamData.id;
-    const teamNumber = teamData.team_number;
+    // RPC returns an array, we grab the first object
+    createdTeamId = teamData[0].new_team_id;
+    const teamId = teamData[0].new_team_id;
+    const teamNumber = teamData[0].new_team_number;
 
-    // 5. Process Each Candidate (Create Auth Account & DB Record)
+    // 4. Process Each Candidate (Create Auth Account & DB Record)
     const candidatesData = [];
     const generatedCredentials = [];
 
@@ -80,11 +68,9 @@ export async function POST(request: Request) {
       const member = members[i];
       const isLeader = i === 0;
 
-      // Generate a random, secure password
       const randomString = Math.random().toString(36).substring(2, 8).toUpperCase();
       const generatedPassword = `Eclipse-${randomString}!`;
 
-      // Create the user in Supabase Auth
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: member.email.trim().toLowerCase(),
         password: generatedPassword,
@@ -93,7 +79,7 @@ export async function POST(request: Request) {
           full_name: member.name, 
           srn: member.srn.trim().toUpperCase(), 
           team_id: teamId,
-          role: 'candidate' // Explicitly mark them as a candidate
+          role: 'candidate' 
         }
       });
 
@@ -101,7 +87,6 @@ export async function POST(request: Request) {
         throw new Error(`Failed to create account for ${member.email}: ${authError.message}`);
       }
 
-      // Keep track of the user ID so we can delete it if the transaction fails later
       if (authData.user) {
         createdAuthIds.push(authData.user.id);
       }
@@ -125,7 +110,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 6. Insert Candidates into the Database
+    // 5. Insert Candidates into the Database
     const { error: candidatesError } = await supabaseAdmin
       .from('candidates')
       .insert(candidatesData);
@@ -147,12 +132,10 @@ export async function POST(request: Request) {
     console.error("API Route Error. Executing Rollback...", error);
 
     // ROLLBACK MECHANISM
-    // If the process failed, delete any Auth users we successfully created
     for (const uid of createdAuthIds) {
       await supabaseAdmin.auth.admin.deleteUser(uid);
     }
-    // Delete the team (this will cascade delete candidates if constraints are set, 
-    // but the candidates insert usually fails first triggering this anyway)
+    
     if (createdTeamId) {
       await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
     }
