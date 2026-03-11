@@ -1,6 +1,7 @@
 // app/api/register/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { sendCredentialEmail } from '@/lib/mailer';
 
 export async function POST(request: Request) {
   const createdAuthIds: string[] = [];
@@ -94,7 +95,8 @@ export async function POST(request: Request) {
       generatedCredentials.push({
         name: member.name,
         email: member.email,
-        password: generatedPassword
+        password: generatedPassword,
+        role: isLeader ? 'Team Leader' : 'Team Member'
       });
 
       candidatesData.push({
@@ -119,7 +121,25 @@ export async function POST(request: Request) {
       throw new Error("Failed to insert candidates into the database.");
     }
 
-    // TODO: Nodemailer Integration here later
+    // 6. Dispatch Emails Asynchronously
+    // We use Promise.allSettled so that if one email bounces, the registration 
+    // itself doesn't crash and the other team members still get their emails.
+    Promise.allSettled(
+      generatedCredentials.map(cred => 
+        sendCredentialEmail(
+          cred.name, 
+          cred.email, 
+          cred.password, 
+          teamName, 
+          cred.role
+        )
+      )
+    ).then(results => {
+      const failures = results.filter(r => r.status === 'rejected');
+      if (failures.length > 0) {
+        console.warn(`${failures.length} emails failed to send, but registration succeeded.`);
+      }
+    });
 
     return NextResponse.json({ 
       success: true, 
@@ -133,11 +153,11 @@ export async function POST(request: Request) {
 
     // ROLLBACK MECHANISM
     for (const uid of createdAuthIds) {
-      await supabaseAdmin.auth.admin.deleteUser(uid);
+      await supabaseAdmin.auth.admin.deleteUser(uid).catch(console.error);
     }
     
     if (createdTeamId) {
-      await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
+      await supabaseAdmin.from('teams').delete().eq('id', createdTeamId).catch(console.error);
     }
 
     return NextResponse.json(
