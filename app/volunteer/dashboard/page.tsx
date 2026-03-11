@@ -103,7 +103,7 @@ export default function VolunteerDashboard() {
   };
 
   useEffect(() => {
-    if (!isAuthorized) return; // Don't poll if not authorized
+    if (!isAuthorized) return; 
     const interval = setInterval(fetchLiveVenueData, 5000);
     return () => clearInterval(interval);
   }, [isAuthorized]);
@@ -170,21 +170,24 @@ export default function VolunteerDashboard() {
         }
 
         if (!providedToken || team.qr_token !== providedToken) {
-          throw new Error("Invalid Security Token. Nice try.");
+          throw new Error("Invalid Security Token. Pass has already been used or manipulated.");
         }
 
         const now = new Date();
         const expiresAt = new Date(team.qr_expires_at);
 
-        if (now > expiresAt) {
+        // Added 5-second grace period for network latency
+        if (now.getTime() > expiresAt.getTime() + 5000) {
           throw new Error("QR Code Expired. Ask candidate to tap 'Reveal' again.");
         }
       }
 
+      // 4. SMART ROUTING: Instant Scan vs Roster Selection
       if (activeMode === "is_present" || isNumeric || !providedUserId) {
         setVerifyingTeam(team);
         setSelectedMembers(new Set());
         setScanState("verify_team");
+        if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(50);
       } 
       else {
         const candidate = team.candidates.find((c: any) => c.id === providedUserId);
@@ -197,12 +200,16 @@ export default function VolunteerDashboard() {
           throw new Error(`Already Claimed: ${candidate.full_name} has already received this.`);
         }
 
+        // Instantly update database
         const { error: updateError } = await supabase
           .from('candidates')
           .update({ [activeMode]: true })
           .eq('id', providedUserId);
 
         if (updateError) throw updateError;
+
+        // INSTANTLY DESTROY THE TOKEN (One-Time-Use enforcement)
+        await supabase.from('teams').update({ qr_token: null }).eq('id', team.id);
 
         fetchLiveVenueData();
         
@@ -214,12 +221,14 @@ export default function VolunteerDashboard() {
 
         setScanState("success");
         setScanMessage(`Verified: ${candidate.full_name} (${modeLabels[activeMode]})`);
+        if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
       }
 
     } catch (err: any) {
       console.error(err);
       setScanState("error");
       setScanMessage(err.message || "Something went wrong.");
+      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate([300, 100, 300]);
     }
   };
 
@@ -241,6 +250,9 @@ export default function VolunteerDashboard() {
 
       if (updateError) throw updateError;
 
+      // INSTANTLY DESTROY THE TOKEN for roster approvals too
+      await supabase.from('teams').update({ qr_token: null }).eq('id', verifyingTeam.id);
+
       fetchLiveVenueData();
 
       const modeLabels = {
@@ -251,11 +263,13 @@ export default function VolunteerDashboard() {
 
       setScanState("success");
       setScanMessage(`Successfully recorded: ${modeLabels[activeMode]} for ${selectedMembers.size} member(s).`);
+      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
 
     } catch (err: any) {
       console.error(err);
       setScanState("error");
       setScanMessage(err.message || "Failed to update records.");
+      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate([300, 100, 300]);
     }
   };
 
@@ -295,7 +309,7 @@ export default function VolunteerDashboard() {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
         {authMessage.includes("Denied") || authMessage.includes("required") ? (
-          <ShieldAlert className="text-red-500 mb-4" size={48} />
+          <ShieldAlert className="text-red-500 mb-4 animate-in zoom-in" size={48} />
         ) : (
           <Loader2 className="animate-spin mb-4" size={48} />
         )}
@@ -373,7 +387,7 @@ export default function VolunteerDashboard() {
             placeholder="Search by Team No. or Name..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-base focus:border-cyan-500 focus:outline-none transition-colors"
           />
         </div>
 
@@ -450,11 +464,11 @@ export default function VolunteerDashboard() {
                   </p>
                   <div className="flex gap-2">
                     <input 
-                      type="text" 
-                      placeholder="Enter Team No. (e.g. 5)" 
+                      type="number" 
+                      placeholder="Team No. (e.g. 5)" 
                       value={manualTeamInput}
                       onChange={(e) => setManualTeamInput(e.target.value)}
-                      className="flex-grow bg-white/5 border border-white/10 rounded-lg py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500 transition-colors text-xs font-mono"
+                      className="flex-grow bg-white/5 border border-white/10 rounded-lg py-3 px-4 text-base text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500 transition-colors font-mono"
                     />
                     <button 
                       onClick={() => handleQRScan(manualTeamInput)}
@@ -585,11 +599,11 @@ export default function VolunteerDashboard() {
                   </p>
                   <div className="flex gap-2">
                     <input 
-                      type="text" 
-                      placeholder="Enter Team No. (e.g. 5)" 
+                      type="number" 
+                      placeholder="Team No. (e.g. 5)" 
                       value={manualTeamInput}
                       onChange={(e) => setManualTeamInput(e.target.value)}
-                      className="flex-grow bg-white/5 border border-white/10 rounded-lg py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500 transition-colors text-xs font-mono"
+                      className="flex-grow bg-white/5 border border-white/10 rounded-lg py-3 px-4 text-base text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500 transition-colors font-mono"
                     />
                     <button 
                       onClick={() => handleQRScan(manualTeamInput)}

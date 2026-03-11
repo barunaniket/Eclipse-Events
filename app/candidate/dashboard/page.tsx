@@ -77,6 +77,7 @@ export default function CandidateDashboard() {
     }
   };
 
+  // REALTIME LISTENER
   useEffect(() => {
     fetchTeamData();
     
@@ -92,6 +93,7 @@ export default function CandidateDashboard() {
     return () => { supabase.removeChannel(subscription); };
   }, []);
 
+  // INSTANT QR KILL SWITCH
   useEffect(() => {
     if (currentUser && currentUser[qrMode]) {
       setQrVisible(false);
@@ -100,6 +102,7 @@ export default function CandidateDashboard() {
     }
   }, [currentUser, qrMode]);
 
+  // 30-SECOND COUNTDOWN LOGIC
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (qrVisible && countdown > 0 && currentUser && !currentUser[qrMode]) {
@@ -145,7 +148,6 @@ export default function CandidateDashboard() {
     window.location.href = '/'; 
   };
 
-  // Show security loading/rejection screen if not fully authorized yet
   if (!isAuthorized || !team || !currentUser) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
