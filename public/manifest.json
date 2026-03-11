@@ -1,0 +1,16 @@
+{
+  "name": "Eclipse Portal",
+  "short_name": "Eclipse",
+  "description": "Event Management Portal for CodeChef PESU ECC",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

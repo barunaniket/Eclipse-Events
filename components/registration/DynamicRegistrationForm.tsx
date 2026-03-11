@@ -2,8 +2,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag, Copy } from "lucide-react";
+import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag } from "lucide-react";
 import { supabase } from "@/lib/supabase"; 
+import { ProblemModal } from "./ProblemModal"; // Ensure you created this file!
 
 interface Track {
   id: string;
@@ -32,7 +33,9 @@ export const DynamicRegistrationForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   
-  // UPDATED: Now expects credentials array
+  // Track which problem statement is being viewed in the modal
+  const [viewingTrack, setViewingTrack] = useState<{id: string, title: string} | null>(null);
+
   const [successData, setSuccessData] = useState<{ teamNumber: number; teamName: string; credentials: Credential[] } | null>(null);
 
   const [members, setMembers] = useState(
@@ -142,7 +145,6 @@ export const DynamicRegistrationForm = () => {
         body: JSON.stringify(payload),
       });
 
-      // Try to parse JSON, but if it fails, read the raw text so we know what went wrong!
       let data;
       const rawText = await response.text();
       try {
@@ -156,7 +158,6 @@ export const DynamicRegistrationForm = () => {
         throw new Error(data.error || "Failed to register team via API.");
       }
 
-      // 4. Set success data AND the returned credentials
       setSuccessData({
         teamNumber: data.teamNumber,
         teamName: data.teamName,
@@ -222,7 +223,6 @@ export const DynamicRegistrationForm = () => {
     );
   }
 
-  // ... (The rest of the component remains exactly the same as before)
   return (
     <div className="w-full text-white">
       <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
@@ -278,18 +278,28 @@ export const DynamicRegistrationForm = () => {
                         {track.description}
                       </div>
 
-                      <button
-                        type="button"
-                        disabled={isFull}
-                        onClick={() => setSelectedProblem(track.id)}
-                        className={`w-full py-3 rounded-lg font-bold uppercase tracking-wider text-sm transition-all ${
-                          isSelected ? "bg-cyan-600 text-white shadow-[0_0_15px_rgba(8,145,178,0.4)]" :
-                          isFull ? "bg-gray-800 text-gray-500 cursor-not-allowed" :
-                          "bg-white/5 hover:bg-white/10 text-gray-300"
-                        }`}
-                      >
-                        {isSelected ? "Track Selected" : isFull ? "Track Full" : "Select This Track"}
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setViewingTrack({ id: track.id, title: track.title })}
+                          className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wider text-xs transition-all bg-[#121212] border border-white/10 hover:bg-white/10 text-gray-300 flex justify-center items-center gap-2"
+                        >
+                          <FileText size={16} /> Read Full Details
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isFull}
+                          onClick={() => setSelectedProblem(track.id)}
+                          className={`flex-1 py-3 rounded-lg font-bold uppercase tracking-wider text-xs transition-all ${
+                            isSelected ? "bg-cyan-600 text-white shadow-[0_0_15px_rgba(8,145,178,0.4)]" :
+                            isFull ? "bg-gray-800 text-gray-500 cursor-not-allowed" :
+                            "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5"
+                          }`}
+                        >
+                          {isSelected ? "Track Selected" : isFull ? "Track Full" : "Select This Track"}
+                        </button>
+                      </div>
                     </div>
                   );
                 })
@@ -449,6 +459,15 @@ export const DynamicRegistrationForm = () => {
           </div>
         )}
       </form>
+
+      {/* Render the Markdown Modal if a track is selected for detailed viewing */}
+      {viewingTrack && (
+        <ProblemModal 
+          trackId={viewingTrack.id} 
+          trackTitle={viewingTrack.title} 
+          onClose={() => setViewingTrack(null)} 
+        />
+      )}
     </div>
   );
 };
