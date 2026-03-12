@@ -64,6 +64,7 @@ export default function VolunteerDashboard() {
           tracks (title),
           candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
         `)
+        .eq('payment_status', 'approved')
         .order('team_number', { ascending: false });
 
       if (error) throw error;
@@ -145,7 +146,8 @@ export default function VolunteerDashboard() {
           qr_expires_at,
           tracks (title),
           candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
-        `);
+        `)
+        .eq('payment_status', 'approved');;
 
       if (isNumeric) {
         query = query.eq('team_number', parseInt(trimmedInput, 10));

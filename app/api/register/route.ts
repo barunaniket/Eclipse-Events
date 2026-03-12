@@ -1,10 +1,9 @@
 // app/api/register/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendCredentialEmail } from '@/lib/mailer';
+import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
 
 export async function POST(request: Request) {
-  const createdAuthIds: string[] = [];
   let createdTeamId: string | null = null;
 
   try {
@@ -35,7 +34,6 @@ export async function POST(request: Request) {
     }
 
     // 3. ATOMIC CAPACITY CHECK & INSERTION (RPC)
-    // This entirely eliminates the race condition
     const { data: teamData, error: teamError } = await supabaseAdmin.rpc(
       'register_team_with_capacity_check', 
       {
@@ -56,61 +54,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to create team. The team name might already be taken." }, { status: 400 });
     }
 
-    // RPC returns an array, we grab the first object
     createdTeamId = teamData[0].new_team_id;
     const teamId = teamData[0].new_team_id;
     const teamNumber = teamData[0].new_team_number;
 
-    // 4. Process Each Candidate (Create Auth Account & DB Record)
-    const candidatesData = [];
-    const generatedCredentials = [];
-
-    for (let i = 0; i < members.length; i++) {
-      const member = members[i];
-      const isLeader = i === 0;
-
-      const randomString = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const generatedPassword = `Eclipse-${randomString}!`;
-
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: member.email.trim().toLowerCase(),
-        password: generatedPassword,
-        email_confirm: true,
-        user_metadata: { 
-          full_name: member.name, 
-          srn: member.srn.trim().toUpperCase(), 
-          team_id: teamId,
-          role: 'candidate' 
-        }
-      });
-
-      if (authError) {
-        throw new Error(`Failed to create account for ${member.email}: ${authError.message}`);
-      }
-
-      if (authData.user) {
-        createdAuthIds.push(authData.user.id);
-      }
-
-      generatedCredentials.push({
-        name: member.name,
-        email: member.email,
-        password: generatedPassword,
-        role: isLeader ? 'Team Leader' : 'Team Member'
-      });
-
-      candidatesData.push({
-        team_id: teamId,
-        is_leader: isLeader,
-        full_name: member.name,
-        srn: member.srn.trim().toUpperCase(),
-        email: member.email.trim().toLowerCase(),
-        phone: member.phone,
-        is_present: false,
-        lunch_received: false,
-        snacks_received: false
-      });
-    }
+    // 4. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
+    const candidatesData = members.map((member: any, index: number) => ({
+      team_id: teamId,
+      is_leader: index === 0,
+      full_name: member.name,
+      srn: member.srn.trim().toUpperCase(),
+      email: member.email.trim().toLowerCase(),
+      phone: member.phone,
+      is_present: false,
+      lunch_received: false,
+      snacks_received: false
+    }));
 
     // 5. Insert Candidates into the Database
     const { error: candidatesError } = await supabaseAdmin
@@ -121,41 +80,24 @@ export async function POST(request: Request) {
       throw new Error("Failed to insert candidates into the database.");
     }
 
-    // 6. Dispatch Emails Asynchronously
-    // We use Promise.allSettled so that if one email bounces, the registration 
-    // itself doesn't crash and the other team members still get their emails.
-    Promise.allSettled(
-      generatedCredentials.map(cred => 
-        sendCredentialEmail(
-          cred.name, 
-          cred.email, 
-          cred.password, 
-          teamName, 
-          cred.role
-        )
-      )
-    ).then(results => {
-      const failures = results.filter(r => r.status === 'rejected');
-      if (failures.length > 0) {
-        console.warn(`${failures.length} emails failed to send, but registration succeeded.`);
-      }
+    // 6. Send "Pending Approval" Email to the Team Leader (Asynchronously)
+    const leader = members[0];
+    sendPendingRegistrationEmail(leader.name, leader.email, teamName).catch((err) => {
+      console.warn("Failed to send pending email to leader, but registration succeeded.", err);
     });
 
+    // 7. Return Success without credentials
     return NextResponse.json({ 
       success: true, 
       teamNumber, 
       teamName,
-      credentials: generatedCredentials
+      status: 'pending' // Tell the frontend to show the pending screen
     });
 
   } catch (error: any) {
     console.error("API Route Error. Executing Rollback...", error);
 
-    // ROLLBACK MECHANISM
-    for (const uid of createdAuthIds) {
-      await supabaseAdmin.auth.admin.deleteUser(uid).catch(console.error);
-    }
-    
+    // ROLLBACK MECHANISM: Only need to delete the team now
     if (createdTeamId) {
       await supabaseAdmin.from('teams').delete().eq('id', createdTeamId).catch(console.error);
     }

@@ -2,9 +2,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag } from "lucide-react";
+import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase"; 
-import { ProblemModal } from "./ProblemModal"; // Ensure you created this file!
+import { ProblemModal } from "./ProblemModal"; 
 
 interface Track {
   id: string;
@@ -12,12 +12,6 @@ interface Track {
   description: string;
   maxTeams: number;
   registeredTeams: number;
-}
-
-interface Credential {
-  name: string;
-  email: string;
-  password: string;
 }
 
 export const DynamicRegistrationForm = () => {
@@ -33,10 +27,10 @@ export const DynamicRegistrationForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   
-  // Track which problem statement is being viewed in the modal
   const [viewingTrack, setViewingTrack] = useState<{id: string, title: string} | null>(null);
 
-  const [successData, setSuccessData] = useState<{ teamNumber: number; teamName: string; credentials: Credential[] } | null>(null);
+  // Updated state to handle the pending status instead of credentials
+  const [successData, setSuccessData] = useState<{ teamNumber: number; teamName: string; status: string } | null>(null);
 
   const [members, setMembers] = useState(
     Array(4).fill({ name: "", email: "", phone: "", srn: "" })
@@ -158,10 +152,11 @@ export const DynamicRegistrationForm = () => {
         throw new Error(data.error || "Failed to register team via API.");
       }
 
+      // Handle the new pending status
       setSuccessData({
         teamNumber: data.teamNumber,
         teamName: data.teamName,
-        credentials: data.credentials
+        status: data.status || 'pending'
       });
 
     } catch (err: any) {
@@ -172,52 +167,39 @@ export const DynamicRegistrationForm = () => {
     }
   };
 
-  // SUCCESS SCREEN WITH CREDENTIALS
+  // NEW PENDING VERIFICATION SUCCESS SCREEN
   if (successData) {
     return (
       <div className="w-full text-white min-h-[500px] flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500">
-        <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-4 border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.3)]">
-           <CheckCircle2 className="text-green-400" size={32} />
+        <div className="w-20 h-20 bg-yellow-500/20 rounded-full flex items-center justify-center mb-6 border border-yellow-500/50 shadow-[0_0_30px_rgba(234,179,8,0.3)]">
+           <Clock className="text-yellow-400" size={40} />
         </div>
         
-        <h2 className="text-2xl font-bold mb-1 tracking-wide text-white text-center">Registration Complete!</h2>
-        <div className="flex items-center gap-3 mb-6">
-          <p className="text-lg text-cyan-400 font-bold">{successData.teamName}</p>
-          <span className="bg-white/10 text-cyan-400 font-mono text-xs font-bold px-2 py-1 rounded border border-cyan-500/30 uppercase">
+        <h2 className="text-3xl font-black mb-2 tracking-wide text-white text-center">Registration Under Review</h2>
+        <div className="flex items-center gap-3 mb-8">
+          <p className="text-xl text-cyan-400 font-bold">{successData.teamName}</p>
+          <span className="bg-white/10 text-cyan-400 font-mono text-sm font-bold px-2 py-1 rounded border border-cyan-500/30 uppercase">
             Team #{successData.teamNumber.toString().padStart(3, '0')}
           </span>
         </div>
 
-        <div className="w-full max-w-md bg-red-900/20 border border-red-500/50 rounded-xl p-4 mb-6 text-center">
-          <AlertTriangle className="text-red-400 mx-auto mb-2" size={24} />
-          <p className="text-red-200 font-bold text-sm uppercase tracking-widest mb-1">Take a Screenshot Now!</p>
-          <p className="text-xs text-red-300">These auto-generated passwords will only be shown once. You will need them to log into the Participant Hub on the day of the event.</p>
-        </div>
-
-        <div className="w-full max-w-md space-y-3 mb-8">
-          {successData.credentials.map((cred, idx) => (
-            <div key={idx} className="bg-black/50 border border-white/10 rounded-xl p-4 flex flex-col gap-2 relative">
-              <span className="absolute top-0 right-0 bg-cyan-900/40 text-cyan-400 text-[9px] px-2 py-1 rounded-bl-lg rounded-tr-xl border-b border-l border-cyan-500/30 uppercase font-bold tracking-widest">
-                {idx === 0 ? "Leader" : `Member ${idx + 1}`}
-              </span>
-              <p className="font-bold text-gray-200 text-sm">{cred.name}</p>
-              
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                <span className="text-gray-500 font-mono">Email:</span>
-                <span className="text-cyan-300 font-mono select-all">{cred.email}</span>
-                
-                <span className="text-gray-500 font-mono">Pass:</span>
-                <span className="text-yellow-400 font-mono font-bold tracking-wider select-all">{cred.password}</span>
-              </div>
-            </div>
-          ))}
+        <div className="w-full max-w-md bg-black/50 border border-yellow-500/30 rounded-2xl p-6 mb-8 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 to-yellow-600"></div>
+          <h3 className="text-lg font-bold text-yellow-400 mb-3">What happens next?</h3>
+          <p className="text-gray-300 text-sm leading-relaxed mb-4">
+            We have successfully received your payment receipt. Our organizing team is currently reviewing your transaction.
+          </p>
+          <div className="bg-white/5 p-4 rounded-xl border border-white/10 text-left">
+            <p className="text-sm text-gray-400 mb-2">An email has been sent to the <strong>Team Leader</strong> confirming this submission.</p>
+            <p className="text-sm text-gray-200">Once your payment is verified, <strong>all team members</strong> will receive individual emails containing their secure passwords to access the Participant Hub.</p>
+          </div>
         </div>
 
         <button 
           onClick={() => window.location.href = '/'} 
-          className="bg-cyan-600 hover:bg-cyan-500 px-8 py-3 rounded-lg font-bold uppercase tracking-wider transition-colors shadow-lg"
+          className="bg-white/10 hover:bg-white/20 text-white border border-white/10 px-8 py-3 rounded-lg font-bold uppercase tracking-wider transition-colors shadow-lg"
         >
-          Go to Login Portal
+          Return to Home
         </button>
       </div>
     );
@@ -452,7 +434,7 @@ export const DynamicRegistrationForm = () => {
                 {isSubmitting ? (
                   <><Loader2 className="animate-spin" size={20} /> Processing...</>
                 ) : (
-                  "Complete Registration"
+                  "Submit Registration"
                 )}
               </button>
             </div>
@@ -460,7 +442,6 @@ export const DynamicRegistrationForm = () => {
         )}
       </form>
 
-      {/* Render the Markdown Modal if a track is selected for detailed viewing */}
       {viewingTrack && (
         <ProblemModal 
           trackId={viewingTrack.id} 
