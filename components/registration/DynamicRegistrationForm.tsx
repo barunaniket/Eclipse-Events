@@ -1,10 +1,11 @@
 // components/registration/DynamicRegistrationForm.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { memo, useEffect, useState } from "react";
 import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag, Clock } from "lucide-react";
-import { supabase } from "@/lib/supabase"; 
+import { publicEnv, supabase } from "@/lib/supabase"; 
 import { ProblemModal } from "./ProblemModal"; 
+import type { MemberFormData } from "@/lib/database.types";
 
 interface Track {
   id: string;
@@ -13,6 +14,58 @@ interface Track {
   maxTeams: number;
   registeredTeams: number;
 }
+
+type TurnstileWindow = Window & {
+  turnstile?: {
+    render: (container: HTMLElement, options: {
+      sitekey: string;
+      callback: (token: string) => void;
+      'expired-callback': () => void;
+      theme: "dark";
+    }) => string;
+    remove?: (widgetId: string) => void;
+  };
+};
+
+const TRACKS_CACHE_KEY = "eclipse_tracks_cache_v1";
+
+const createEmptyMember = (): MemberFormData => ({ name: "", email: "", phone: "", srn: "" });
+
+const MemberFields = memo(function MemberFields({
+  index,
+  member,
+  onChange,
+}: {
+  index: number;
+  member: MemberFormData;
+  onChange: (index: number, field: keyof MemberFormData, value: string) => void;
+}) {
+  return (
+    <div className="bg-black/40 border border-white/5 p-5 rounded-xl">
+      <h4 className="text-sm font-semibold text-purple-400 mb-4 uppercase tracking-wider">
+        {index === 0 ? "Team Leader" : `Team Member ${index + 1}`}
+      </h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="relative">
+          <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input type="text" placeholder="Full Name" required value={member.name} onChange={(e) => onChange(index, "name", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
+        </div>
+        <div className="relative">
+          <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input type="text" placeholder="PESU SRN" required value={member.srn} onChange={(e) => onChange(index, "srn", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors uppercase" />
+        </div>
+        <div className="relative">
+          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input type="email" placeholder="Email Address" required value={member.email} onChange={(e) => onChange(index, "email", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
+        </div>
+        <div className="relative">
+          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+          <input type="tel" placeholder="Phone Number" required value={member.phone} onChange={(e) => onChange(index, "phone", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export const DynamicRegistrationForm = () => {
   const [step, setStep] = useState(1);
@@ -32,13 +85,26 @@ export const DynamicRegistrationForm = () => {
   // Updated state to handle the pending status instead of credentials
   const [successData, setSuccessData] = useState<{ teamNumber: number; teamName: string; status: string } | null>(null);
 
-  const [members, setMembers] = useState(
-    Array(4).fill({ name: "", email: "", phone: "", srn: "" })
+  const [members, setMembers] = useState<MemberFormData[]>(
+    Array.from({ length: 4 }, createEmptyMember)
   );
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const [turnstileWidgetId, setTurnstileWidgetId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchLiveTracks = async () => {
       try {
+        const cachedTracks = sessionStorage.getItem(TRACKS_CACHE_KEY);
+        if (cachedTracks) {
+          const parsed = JSON.parse(cachedTracks) as { timestamp: number; tracks: Track[] };
+          if (Date.now() - parsed.timestamp < 30_000) {
+            setTracks(parsed.tracks);
+            setIsLoadingTracks(false);
+            return;
+          }
+        }
+
         const { data, error } = await supabase
           .from('tracks')
           .select('*, teams(count)')
@@ -55,6 +121,7 @@ export const DynamicRegistrationForm = () => {
         }));
 
         setTracks(liveTracks);
+        sessionStorage.setItem(TRACKS_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), tracks: liveTracks }));
       } catch (err) {
         console.error("Failed to fetch live tracks:", err);
       } finally {
@@ -65,7 +132,60 @@ export const DynamicRegistrationForm = () => {
     fetchLiveTracks();
   }, []);
 
-  const handleMemberChange = (index: number, field: string, value: string) => {
+  useEffect(() => {
+    const existingScript = document.getElementById("turnstile-script");
+    if (existingScript) {
+      setTurnstileReady(true);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "turnstile-script";
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setTurnstileReady(true);
+    document.head.appendChild(script);
+
+    return () => {
+      script.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (step === 3) {
+      return;
+    }
+
+    if (turnstileWidgetId) {
+      (window as TurnstileWindow).turnstile?.remove?.(turnstileWidgetId);
+      setTurnstileWidgetId(null);
+      setCaptchaToken("");
+    }
+  }, [step, turnstileWidgetId]);
+
+  useEffect(() => {
+    if (!turnstileReady || step !== 3 || turnstileWidgetId) {
+      return;
+    }
+
+    const container = document.getElementById("turnstile-container");
+    const turnstile = (window as TurnstileWindow).turnstile;
+    if (!container || !turnstile) {
+      return;
+    }
+
+    const widgetId = turnstile.render(container, {
+      sitekey: publicEnv.turnstileSiteKey,
+      callback: (token) => setCaptchaToken(token),
+      "expired-callback": () => setCaptchaToken(""),
+      theme: "dark",
+    });
+
+    setTurnstileWidgetId(widgetId);
+  }, [step, turnstileReady, turnstileWidgetId]);
+
+  const handleMemberChange = (index: number, field: keyof MemberFormData, value: string) => {
     const updatedMembers = [...members];
     updatedMembers[index] = { ...updatedMembers[index], [field]: value };
     setMembers(updatedMembers);
@@ -102,14 +222,16 @@ export const DynamicRegistrationForm = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError("");
+    let uploadedReceiptPath: string | null = null;
 
     try {
       if (!teamName.trim()) throw new Error("Team Name is required.");
       if (!paymentFile) throw new Error("Payment receipt is missing.");
 
       const fileExt = paymentFile.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const fileName = `${Date.now()}-${crypto.randomUUID()}.${fileExt}`;
       const filePath = `public/${fileName}`;
+      uploadedReceiptPath = filePath;
 
       const { error: uploadError } = await supabase.storage
         .from('receipts')
@@ -117,20 +239,15 @@ export const DynamicRegistrationForm = () => {
 
       if (uploadError) throw new Error("Failed to upload receipt. Please try again.");
 
-      const { data: publicUrlData } = supabase.storage
-        .from('receipts')
-        .getPublicUrl(filePath);
-      
-      const receiptUrl = publicUrlData.publicUrl;
-
       const activeMembers = members.slice(0, teamSize);
       
       const payload = {
         teamName: teamName.trim(),
         trackId: selectedProblem,
         teamSize,
-        receiptUrl,
-        members: activeMembers
+        receiptUrl: filePath,
+        members: activeMembers,
+        captchaToken,
       };
 
       const response = await fetch('/api/register', {
@@ -161,6 +278,15 @@ export const DynamicRegistrationForm = () => {
 
     } catch (err: any) {
       console.error("Full Submission Error:", err);
+      if (uploadedReceiptPath) {
+        const { error: cleanupError } = await supabase.storage
+          .from('receipts')
+          .remove([uploadedReceiptPath]);
+
+        if (cleanupError) {
+          console.warn("Failed to clean up orphaned receipt upload.", cleanupError);
+        }
+      }
       setSubmitError(err.message || "An unexpected error occurred.");
     } finally {
       setIsSubmitting(false);
@@ -338,29 +464,7 @@ export const DynamicRegistrationForm = () => {
              </div>
 
              {Array.from({ length: teamSize }).map((_, index) => (
-               <div key={index} className="bg-black/40 border border-white/5 p-5 rounded-xl">
-                 <h4 className="text-sm font-semibold text-purple-400 mb-4 uppercase tracking-wider">
-                   {index === 0 ? "Team Leader" : `Team Member ${index + 1}`}
-                 </h4>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   <div className="relative">
-                     <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                     <input type="text" placeholder="Full Name" required value={members[index].name} onChange={(e) => handleMemberChange(index, "name", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
-                   </div>
-                   <div className="relative">
-                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                     <input type="text" placeholder="PESU SRN" required value={members[index].srn} onChange={(e) => handleMemberChange(index, "srn", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors uppercase" />
-                   </div>
-                   <div className="relative">
-                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                     <input type="email" placeholder="Email Address" required value={members[index].email} onChange={(e) => handleMemberChange(index, "email", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
-                   </div>
-                   <div className="relative">
-                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                     <input type="tel" placeholder="Phone Number" required value={members[index].phone} onChange={(e) => handleMemberChange(index, "phone", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
-                   </div>
-                 </div>
-               </div>
+               <MemberFields key={index} index={index} member={members[index]} onChange={handleMemberChange} />
              ))}
            </div>
            
@@ -428,9 +532,11 @@ export const DynamicRegistrationForm = () => {
               </div>
             </div>
 
+            <div id="turnstile-container" className="min-h-[70px] rounded-xl border border-white/10 bg-black/40 flex items-center justify-center mb-6" />
+
             <div className="flex gap-4 pt-4 border-t border-white/10 mt-auto">
               <button type="button" onClick={() => setStep(2)} disabled={isSubmitting} className="px-6 py-4 rounded-lg font-bold bg-white/5 hover:bg-white/10 disabled:opacity-50 transition-all text-gray-300">Back</button>
-              <button type="submit" disabled={!paymentFile || isSubmitting} className="flex-1 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed py-4 rounded-lg font-bold uppercase tracking-wide flex justify-center items-center gap-2 transition-all shadow-lg">
+              <button type="submit" disabled={!paymentFile || !captchaToken || isSubmitting} className="flex-1 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed py-4 rounded-lg font-bold uppercase tracking-wide flex justify-center items-center gap-2 transition-all shadow-lg">
                 {isSubmitting ? (
                   <><Loader2 className="animate-spin" size={20} /> Processing...</>
                 ) : (

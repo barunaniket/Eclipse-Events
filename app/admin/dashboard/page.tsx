@@ -2,20 +2,27 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { getAuthHeaders, supabase } from "@/lib/supabase";
 // Added Clock to the imports here!
-import { ShieldAlert, Loader2, LogOut, CheckCircle2, XCircle, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock } from "lucide-react";
+import { ShieldAlert, Loader2, LogOut, CheckCircle2, XCircle, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { DashboardErrorBoundary } from "@/components/shared/DashboardErrorBoundary";
+import type { AdminTeamRecord } from "@/lib/database.types";
 
 type TeamStatus = 'pending' | 'approved';
+const PAGE_SIZE = 25;
 
 export default function AdminDashboard() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [authMessage, setAuthMessage] = useState("Authenticating Admin Credentials...");
 
   const [activeTab, setActiveTab] = useState<TeamStatus>('pending');
-  const [teams, setTeams] = useState<any[]>([]);
+  const [teams, setTeams] = useState<AdminTeamRecord[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
 
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -38,16 +45,48 @@ export default function AdminDashboard() {
       }
 
       setIsAuthorized(true);
-      fetchTeams();
+      void fetchTeamCounts();
+      void fetchTeams(1, activeTab, "");
     };
 
     verifyAccess();
   }, []);
 
-  const fetchTeams = async () => {
+  useEffect(() => {
+    if (!isAuthorized) {
+      return;
+    }
+
+    void fetchTeams(page, activeTab, searchQuery);
+  }, [activeTab, page, searchQuery, isAuthorized]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const fetchTeamCounts = async () => {
+    const [{ count: pending }, { count: approved }] = await Promise.all([
+      supabase.from('teams').select('id', { count: 'exact', head: true }).eq('payment_status', 'pending'),
+      supabase.from('teams').select('id', { count: 'exact', head: true }).eq('payment_status', 'approved'),
+    ]);
+
+    setPendingCount(pending || 0);
+    setApprovedCount(approved || 0);
+  };
+
+  const fetchTeams = async (targetPage = page, status = activeTab, query = searchQuery) => {
     setIsLoadingData(true);
     try {
-      const { data, error } = await supabase
+      let request = supabase
         .from('teams')
         .select(`
           id, 
@@ -59,8 +98,15 @@ export default function AdminDashboard() {
           tracks (title),
           candidates (id, full_name, email, srn, is_leader)
         `)
-        // Swapped created_at for team_number to prevent schema errors
-        .order('team_number', { ascending: false });
+        .eq('payment_status', status)
+        .order('team_number', { ascending: false })
+        .range((targetPage - 1) * PAGE_SIZE, targetPage * PAGE_SIZE - 1);
+
+      if (query.trim()) {
+        request = request.or(`team_name.ilike.%${query.trim()}%,id.ilike.%${query.trim()}%`);
+      }
+
+      const { data, error } = await request.returns<AdminTeamRecord[]>();
 
       if (error) throw error;
       setTeams(data || []);
@@ -79,7 +125,10 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
+        },
         body: JSON.stringify({ teamId })
       });
 
@@ -87,7 +136,8 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error(data.error || "Failed to approve team");
 
       alert(`Success! Team approved and credentials emailed to ${data.emailsSent} members.`);
-      fetchTeams(); 
+      await fetchTeamCounts();
+      await fetchTeams(); 
     } catch (error: any) {
       console.error(error);
       alert(error.message);
@@ -104,7 +154,10 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/reject', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
+        },
         body: JSON.stringify({ teamId, reason })
       });
 
@@ -112,7 +165,8 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error(data.error || "Failed to reject team");
 
       alert("Team rejected, deleted from database, and leader notified.");
-      fetchTeams(); 
+      await fetchTeamCounts();
+      await fetchTeams(); 
     } catch (error: any) {
       console.error(error);
       alert(error.message);
@@ -124,6 +178,25 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = '/'; 
+  };
+
+  const handleViewReceipt = async (receiptPath: string) => {
+    try {
+      const params = new URLSearchParams({ path: receiptPath });
+      const res = await fetch(`/api/admin/receipt?${params.toString()}`, {
+        headers: await getAuthHeaders(),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load receipt.");
+      }
+
+      setViewingReceipt(data.signedUrl);
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || "Failed to load receipt.");
+    }
   };
 
   if (!isAuthorized) {
@@ -139,13 +212,8 @@ export default function AdminDashboard() {
     );
   }
 
-  const filteredTeams = teams.filter(t => 
-    t.payment_status === activeTab &&
-    (t.team_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-     t.id.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
   return (
+    <DashboardErrorBoundary>
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30">
       
       <nav className="sticky top-0 z-40 bg-[#0a0a0a] border-b border-white/10 px-6 py-4 flex justify-between items-center shadow-xl">
@@ -164,32 +232,43 @@ export default function AdminDashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-6">
+        {isOffline && (
+          <div className="mb-8 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-sm text-yellow-300 flex items-center justify-between gap-4">
+            <span>You appear to be offline. Admin actions and receipt viewing will fail until the connection returns.</span>
+            <button onClick={() => { void fetchTeamCounts(); void fetchTeams(); }} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        )}
         
         <div className="flex flex-col md:flex-row gap-6 mb-8 items-end">
           <div className="flex bg-white/5 p-1.5 rounded-xl border border-white/10 w-full md:w-auto">
             <button 
-              onClick={() => setActiveTab('pending')}
+              onClick={() => { setActiveTab('pending'); setPage(1); }}
               className={`flex-1 md:w-48 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'pending' ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-500/30' : 'text-gray-500 hover:text-gray-300'}`}
             >
-              <Clock size={16} /> Pending ({teams.filter(t => t.payment_status === 'pending').length})
+              <Clock size={16} /> Pending ({pendingCount})
             </button>
             <button 
-              onClick={() => setActiveTab('approved')}
+              onClick={() => { setActiveTab('approved'); setPage(1); }}
               className={`flex-1 md:w-48 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'approved' ? 'bg-green-600/20 text-green-400 border border-green-500/30' : 'text-gray-500 hover:text-gray-300'}`}
             >
-              <CheckCircle2 size={16} /> Approved ({teams.filter(t => t.payment_status === 'approved').length})
+              <CheckCircle2 size={16} /> Approved ({approvedCount})
             </button>
           </div>
 
           <div className="relative flex-grow">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search teams by name..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
-            />
+              <input 
+                type="text" 
+                placeholder="Search teams by name..." 
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
+              />
           </div>
         </div>
 
@@ -213,15 +292,15 @@ export default function AdminDashboard() {
                       <p className="font-mono text-sm uppercase tracking-widest">Loading Records...</p>
                     </td>
                   </tr>
-                ) : filteredTeams.length === 0 ? (
+                ) : teams.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-gray-500 text-sm">
                       No {activeTab} teams found.
                     </td>
                   </tr>
                 ) : (
-                  filteredTeams.map((team) => {
-                    const leader = team.candidates.find((c: any) => c.is_leader) || team.candidates[0];
+                  teams.map((team) => {
+                    const leader = team.candidates.find((candidate) => candidate.is_leader) || team.candidates[0];
 
                     return (
                       <tr key={team.id} className="hover:bg-white/[0.02] transition-colors">
@@ -243,7 +322,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-4 text-center">
                           <button 
-                            onClick={() => setViewingReceipt(team.receipt_url)}
+                            onClick={() => handleViewReceipt(team.receipt_url)}
                             className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 p-2 rounded-lg transition-colors inline-block"
                             title="View Receipt"
                           >
@@ -282,6 +361,23 @@ export default function AdminDashboard() {
             </table>
           </div>
         </div>
+        <div className="flex items-center justify-end gap-3 mt-6">
+          <button
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={page === 1 || isLoadingData}
+            className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-bold"
+          >
+            <ChevronLeft size={16} /> Prev
+          </button>
+          <span className="text-xs font-mono text-gray-400 uppercase tracking-widest">Page {page}</span>
+          <button
+            onClick={() => setPage((current) => current + 1)}
+            disabled={teams.length < PAGE_SIZE || isLoadingData}
+            className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-bold"
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </div>
       </main>
 
       {viewingReceipt && (
@@ -292,7 +388,7 @@ export default function AdminDashboard() {
               <button onClick={() => setViewingReceipt(null)} className="text-gray-400 hover:text-white p-2"><X size={24} /></button>
             </div>
             <div className="flex-grow p-4 overflow-hidden flex items-center justify-center bg-black/50">
-               {viewingReceipt.toLowerCase().endsWith('.pdf') ? (
+               {viewingReceipt.toLowerCase().includes('.pdf') ? (
                  <iframe src={viewingReceipt} className="w-full h-full rounded-xl" />
                ) : (
                  <img src={viewingReceipt} alt="Receipt" className="max-w-full max-h-full object-contain rounded-xl" />
@@ -306,5 +402,6 @@ export default function AdminDashboard() {
       )}
 
     </div>
+    </DashboardErrorBoundary>
   );
 }

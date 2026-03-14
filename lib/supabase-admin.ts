@@ -1,9 +1,9 @@
 // lib/supabase-admin.ts
 import { createClient } from '@supabase/supabase-js';
+import { serverEnv } from '@/lib/env';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-// Make sure you added this to your .env.local!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = serverEnv.supabaseUrl;
+const supabaseServiceKey = serverEnv.supabaseServiceRoleKey;
 
 // This client bypasses Row Level Security (RLS). 
 // NEVER use this on the frontend.
