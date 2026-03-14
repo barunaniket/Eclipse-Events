@@ -44,6 +44,11 @@ Create a `.env.local` file:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=your-turnstile-site-key
+TURNSTILE_SECRET_KEY=your-turnstile-secret-key
+RESEND_API_KEY=your-resend-api-key
+EMAIL_FROM=Eclipse Portal <noreply@yourdomain.com>
+EMAIL_USER=ops@yourdomain.com
 ```
 
 ### Development

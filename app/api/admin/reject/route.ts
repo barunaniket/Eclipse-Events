@@ -2,11 +2,19 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendRejectionEmail } from '@/lib/mailer';
+import { requireRole } from '@/lib/server-auth';
+import { logAdminAction } from '@/lib/admin-actions';
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireRole(request, ['admin']);
+    if (auth.error) {
+      return auth.error;
+    }
+
     const body = await request.json();
-    const { teamId, reason } = body;
+    const teamId = typeof body?.teamId === 'string' ? body.teamId.trim() : '';
+    const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
 
     if (!teamId || !reason) {
       return NextResponse.json({ error: "Team ID and Rejection Reason are required" }, { status: 400 });
@@ -32,6 +40,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Cannot reject an already approved team. You must manually delete them if needed." }, { status: 400 });
     }
 
+    console.info('Admin rejection requested', {
+      adminId: auth.user.id,
+      adminEmail: auth.user.email,
+      teamId,
+      reason,
+    });
+
     const leader = team.candidates.find((c: any) => c.is_leader) || team.candidates[0];
 
     // 2. Delete the Team from the database
@@ -52,6 +67,14 @@ export async function POST(request: Request) {
         console.warn(`Failed to send rejection email to ${leader.email}`, err);
       });
     }
+
+    await logAdminAction({
+      action: 'reject',
+      adminId: auth.user.id,
+      adminEmail: auth.user.email,
+      teamId,
+      metadata: { reason },
+    });
 
     return NextResponse.json({ 
       success: true, 

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import dynamic from "next/dynamic";
 import remarkGfm from "remark-gfm";
 import { X, Loader2, FileWarning } from "lucide-react";
 
@@ -11,6 +11,11 @@ interface ProblemModalProps {
   trackTitle: string;
   onClose: () => void;
 }
+
+const ReactMarkdown = dynamic(() => import("react-markdown"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading renderer...</div>,
+});
 
 export const ProblemModal = ({ trackId, trackTitle, onClose }: ProblemModalProps) => {
   const [content, setContent] = useState("");

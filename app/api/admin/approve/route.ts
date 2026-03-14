@@ -2,13 +2,21 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendCredentialEmail } from '@/lib/mailer';
+import { requireRole } from '@/lib/server-auth';
+import { generateSecurePassword } from '@/lib/security';
+import { logAdminAction } from '@/lib/admin-actions';
 
 export async function POST(request: Request) {
   const createdAuthIds: string[] = [];
 
   try {
+    const auth = await requireRole(request, ['admin']);
+    if (auth.error) {
+      return auth.error;
+    }
+
     const body = await request.json();
-    const { teamId } = body;
+    const teamId = typeof body?.teamId === 'string' ? body.teamId.trim() : '';
 
     if (!teamId) {
       return NextResponse.json({ error: "Team ID is required" }, { status: 400 });
@@ -35,14 +43,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This team has already been approved." }, { status: 400 });
     }
 
+    console.info('Admin approval requested', {
+      adminId: auth.user.id,
+      adminEmail: auth.user.email,
+      teamId,
+    });
+
     const candidates = team.candidates;
     const generatedCredentials = [];
+    const siteOrigin = request.headers.get('origin') || `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`;
 
     // 2. Create Auth Accounts for each candidate securely
     for (const candidate of candidates) {
-      // Generate secure 8-character password
-      const randomString = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const generatedPassword = `Eclipse-${randomString}!`;
+      const generatedPassword = generateSecurePassword();
       const roleLabel = candidate.is_leader ? 'Team Leader' : 'Team Member';
 
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -66,10 +79,26 @@ export async function POST(request: Request) {
         createdAuthIds.push(authData.user.id);
       }
 
+      const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email: candidate.email.trim().toLowerCase(),
+        options: {
+          redirectTo: `${siteOrigin}/candidate/login`,
+        },
+      });
+
+      if (linkError) {
+        throw new Error(`Failed to generate onboarding link for ${candidate.email}: ${linkError.message}`);
+      }
+
+      if (!linkData.properties?.action_link) {
+        throw new Error(`Failed to generate onboarding link for ${candidate.email}.`);
+      }
+
       generatedCredentials.push({
         name: candidate.full_name,
         email: candidate.email,
-        password: generatedPassword,
+        onboardingLink: linkData.properties.action_link,
         role: roleLabel
       });
     }
@@ -91,7 +120,7 @@ export async function POST(request: Request) {
         sendCredentialEmail(
           cred.name, 
           cred.email, 
-          cred.password, 
+          cred.onboardingLink, 
           team.team_name,
           team.team_number, 
           cred.role
@@ -102,6 +131,14 @@ export async function POST(request: Request) {
       if (failures.length > 0) {
         console.warn(`${failures.length} approval emails failed to send for team ${team.team_name}.`);
       }
+    });
+
+    await logAdminAction({
+      action: 'approve',
+      adminId: auth.user.id,
+      adminEmail: auth.user.email,
+      teamId,
+      metadata: { emailsSent: generatedCredentials.length },
     });
 
     return NextResponse.json({ 

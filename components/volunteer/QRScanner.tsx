@@ -44,6 +44,13 @@ export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onError }) => {
             const now = Date.now();
             if (isComponentMounted.current && (now - lastScanTime.current > 2000)) {
               lastScanTime.current = now;
+              if (scannerRef.current?.isScanning) {
+                scannerRef.current.stop()
+                  .then(() => scannerRef.current?.clear())
+                  .catch(console.error)
+                  .finally(() => onScanRef.current(decodedText));
+                return;
+              }
               onScanRef.current(decodedText);
             }
           },

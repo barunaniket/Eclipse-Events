@@ -2,19 +2,37 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import QRCode from "react-qr-code";
+import dynamic from "next/dynamic";
 import { LogOut, MapPin, Coffee, Utensils, CheckCircle2, Users, Hash, Loader2, ShieldAlert, User as UserIcon, QrCode, Timer } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { getAuthHeaders, supabase } from "@/lib/supabase";
+import { DashboardErrorBoundary } from "@/components/shared/DashboardErrorBoundary";
+import type { CandidateDetails, TeamDetails } from "@/lib/database.types";
 
 type QRMode = 'is_present' | 'lunch_received' | 'snacks_received';
+type TeamState = {
+  id: string;
+  name: string;
+  number: number;
+  track: string;
+  members: CandidateDetails[];
+};
+
+const DynamicQrCode = dynamic(() => import("@/components/shared/DynamicQrCode"), { ssr: false });
+const QR_MODE_CODES: Record<QRMode, 'C' | 'L' | 'S'> = {
+  is_present: 'C',
+  lunch_received: 'L',
+  snacks_received: 'S',
+};
 
 export default function CandidateDashboard() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [authMessage, setAuthMessage] = useState("Verifying event pass...");
 
-  const [team, setTeam] = useState<any>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [team, setTeam] = useState<TeamState | null>(null);
+  const [currentUser, setCurrentUser] = useState<CandidateDetails | null>(null);
   const [isGenerating, setIsGenerating] = useState(false); 
+  const [currentTeamId, setCurrentTeamId] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
   
   const [qrMode, setQrMode] = useState<QRMode>('is_present');
   const [qrVisible, setQrVisible] = useState(false);
@@ -53,11 +71,12 @@ export default function CandidateDashboard() {
           candidates (id, email, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
         `)
         .eq('id', teamId)
-        .single();
+        .single<TeamDetails>();
 
       if (teamError) throw teamError;
 
-      const me = teamData.candidates.find((c: any) => c.email === user.email);
+      setCurrentTeamId(teamId);
+      const me = teamData.candidates.find((candidate) => candidate.email === user.email);
       setCurrentUser(me);
 
       setTeam({
@@ -65,7 +84,7 @@ export default function CandidateDashboard() {
         name: teamData.team_name,
         number: teamData.team_number,
         track: teamData.tracks?.title || "Unknown Track",
-        members: teamData.candidates.sort((a: any, b: any) => b.is_leader - a.is_leader)
+        members: [...teamData.candidates].sort((a, b) => Number(b.is_leader) - Number(a.is_leader))
       });
       
       setIsAuthorized(true);
@@ -80,10 +99,16 @@ export default function CandidateDashboard() {
   // REALTIME LISTENER
   useEffect(() => {
     fetchTeamData();
-    
+  }, []);
+
+  useEffect(() => {
+    if (!currentTeamId) {
+      return;
+    }
+
     const subscription = supabase
-      .channel('public:candidates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates' }, 
+      .channel(`candidate-team-${currentTeamId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates', filter: `team_id=eq.${currentTeamId}` }, 
         () => { 
           fetchTeamData(); 
         }
@@ -91,6 +116,19 @@ export default function CandidateDashboard() {
       .subscribe();
 
     return () => { supabase.removeChannel(subscription); };
+  }, [currentTeamId]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, []);
 
   // INSTANT QR KILL SWITCH
@@ -121,7 +159,10 @@ export default function CandidateDashboard() {
     try {
       const response = await fetch('/api/generate-qr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
+        },
         body: JSON.stringify({ teamId: team.id })
       });
 
@@ -172,14 +213,10 @@ export default function CandidateDashboard() {
   const activeConfig = modeConfig[qrMode];
   const ActiveIcon = activeConfig.icon;
 
-  const qrPayload = JSON.stringify({
-    teamId: team.id,
-    userId: currentUser.id,
-    token: qrToken,
-    mode: qrMode
-  });
+  const qrPayload = qrToken ? `${team.id}|${currentUser.id}|${qrToken}|${QR_MODE_CODES[qrMode]}` : "";
 
   return (
+    <DashboardErrorBoundary>
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30 pb-24">
       <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 px-5 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -196,6 +233,14 @@ export default function CandidateDashboard() {
       </nav>
 
       <main className="p-5 max-w-md mx-auto flex flex-col items-center animate-in fade-in duration-500">
+        {isOffline && (
+          <div className="w-full mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-sm text-yellow-300 flex items-center justify-between gap-4">
+            <span>You appear to be offline. Reconnect before generating or refreshing your pass.</span>
+            <button onClick={fetchTeamData} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">
+              Retry
+            </button>
+          </div>
+        )}
         
         <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 mb-8 shadow-2xl relative overflow-hidden">
           <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
@@ -280,10 +325,9 @@ export default function CandidateDashboard() {
                 ) : (qrVisible && qrToken) ? (
                   <div className="flex flex-col items-center animate-in zoom-in duration-300">
                     <div className="bg-white p-2 rounded-xl">
-                      <QRCode 
+                      <DynamicQrCode 
                         value={qrPayload}
                         size={180}
-                        level="H"
                       />
                     </div>
                     
@@ -329,7 +373,7 @@ export default function CandidateDashboard() {
           </div>
 
           <div className="divide-y divide-white/5">
-            {team.members.map((member: any) => {
+            {team.members.map((member) => {
               const memberClaimed = member[qrMode];
               const isMe = member.id === currentUser.id;
 
@@ -356,5 +400,6 @@ export default function CandidateDashboard() {
 
       </main>
     </div>
+    </DashboardErrorBoundary>
   );
 }

@@ -1,46 +1,94 @@
 // app/api/register/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
+import { sendPendingRegistrationEmail } from '@/lib/mailer';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { serverEnv } from '@/lib/env';
+import { assertPrivateReceiptsBucket, getClientIp, normalizeReceiptPath, verifyTurnstileToken } from '@/lib/security';
 
 export async function POST(request: Request) {
   let createdTeamId: string | null = null;
+  let normalizedReceiptPath: string | null = null;
 
   try {
-    const body = await request.json();
-    const { teamName, trackId, teamSize, receiptUrl, members } = body;
-
-    const emails = members.map((m: any) => m.email.trim().toLowerCase());
-    const srns = members.map((m: any) => m.srn.trim().toUpperCase());
-
-    // 1. PRE-CHECK: Ensure Emails are Unique
-    const { data: existingEmails } = await supabaseAdmin
-      .from('candidates')
-      .select('email')
-      .in('email', emails);
-
-    if (existingEmails && existingEmails.length > 0) {
-      return NextResponse.json({ error: `Duplicate entry: Email ${existingEmails[0].email} is already registered.` }, { status: 400 });
+    const clientIp = getClientIp(request.headers.get('x-forwarded-for'));
+    const rateLimit = checkRateLimit(`register:${clientIp}`, 5, 60 * 60 * 1000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: "Too many registration attempts. Please try again later." }, { status: 429 });
     }
 
-    // 2. PRE-CHECK: Ensure SRNs are Unique
-    const { data: existingSrns } = await supabaseAdmin
-      .from('candidates')
-      .select('srn')
-      .in('srn', srns);
+    const body = await request.json();
+    const { teamName, trackId, teamSize, receiptUrl, members, captchaToken } = body;
+    const normalizedTeamName = typeof teamName === 'string' ? teamName.trim() : '';
+    const normalizedTrackId = typeof trackId === 'string' ? trackId.trim() : '';
+    const normalizedTeamSize = Number(teamSize);
+    normalizedReceiptPath = normalizeReceiptPath(String(receiptUrl || ''), serverEnv.supabaseUrl);
+    const normalizedCaptchaToken = typeof captchaToken === 'string' ? captchaToken.trim() : '';
 
-    if (existingSrns && existingSrns.length > 0) {
-      return NextResponse.json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
+    if (!normalizedCaptchaToken) {
+      return NextResponse.json({ error: "CAPTCHA verification is required." }, { status: 400 });
+    }
+
+    const captchaValid = await verifyTurnstileToken(normalizedCaptchaToken, clientIp);
+    if (!captchaValid) {
+      return NextResponse.json({ error: "CAPTCHA verification failed." }, { status: 400 });
+    }
+
+    await assertPrivateReceiptsBucket();
+
+    if (!normalizedTeamName || !normalizedTrackId || !Number.isInteger(normalizedTeamSize) || normalizedTeamSize < 1 || normalizedTeamSize > 4 || !Array.isArray(members) || members.length !== normalizedTeamSize) {
+      return NextResponse.json({ error: "Invalid registration payload." }, { status: 400 });
+    }
+
+    const normalizedMembers = members.map((member: any) => ({
+      name: typeof member?.name === 'string' ? member.name.trim() : '',
+      email: typeof member?.email === 'string' ? member.email.trim().toLowerCase() : '',
+      phone: typeof member?.phone === 'string' ? member.phone.trim() : '',
+      srn: typeof member?.srn === 'string' ? member.srn.trim().toUpperCase() : '',
+    }));
+
+    if (normalizedMembers.some((member) => !member.name || !member.email || !member.phone || !member.srn)) {
+      return NextResponse.json({ error: "All team member details are required." }, { status: 400 });
+    }
+
+    const emails = normalizedMembers.map((member) => member.email);
+    const srns = normalizedMembers.map((member) => member.srn);
+
+    if (new Set(emails).size !== emails.length) {
+      return NextResponse.json({ error: "Duplicate entry: Team member emails must be unique." }, { status: 400 });
+    }
+
+    if (new Set(srns).size !== srns.length) {
+      return NextResponse.json({ error: "Duplicate entry: Team member SRNs must be unique." }, { status: 400 });
+    }
+
+    const { data: existingCandidates, error: duplicateLookupError } = await supabaseAdmin
+      .from('candidates')
+      .select('email, srn')
+      .or(`email.in.(${emails.map((email) => `"${email}"`).join(',')}),srn.in.(${srns.map((srn) => `"${srn}"`).join(',')})`);
+
+    if (duplicateLookupError) {
+      throw duplicateLookupError;
+    }
+
+    const duplicateEmail = existingCandidates?.find((candidate) => emails.includes(candidate.email));
+    if (duplicateEmail) {
+      return NextResponse.json({ error: `Duplicate entry: Email ${duplicateEmail.email} is already registered.` }, { status: 400 });
+    }
+
+    const duplicateSrn = existingCandidates?.find((candidate) => srns.includes(candidate.srn));
+    if (duplicateSrn) {
+      return NextResponse.json({ error: `Duplicate entry: SRN ${duplicateSrn.srn} is already registered.` }, { status: 400 });
     }
 
     // 3. ATOMIC CAPACITY CHECK & INSERTION (RPC)
     const { data: teamData, error: teamError } = await supabaseAdmin.rpc(
       'register_team_with_capacity_check', 
       {
-        p_team_name: teamName,
-        p_track_id: trackId,
-        p_team_size: teamSize,
-        p_receipt_url: receiptUrl
+        p_team_name: normalizedTeamName,
+        p_track_id: normalizedTrackId,
+        p_team_size: normalizedTeamSize,
+        p_receipt_url: normalizedReceiptPath
       }
     );
 
@@ -59,12 +107,12 @@ export async function POST(request: Request) {
     const teamNumber = teamData[0].new_team_number;
 
     // 4. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
-    const candidatesData = members.map((member: any, index: number) => ({
+    const candidatesData = normalizedMembers.map((member, index: number) => ({
       team_id: teamId,
       is_leader: index === 0,
       full_name: member.name,
-      srn: member.srn.trim().toUpperCase(),
-      email: member.email.trim().toLowerCase(),
+      srn: member.srn,
+      email: member.email,
       phone: member.phone,
       is_present: false,
       lunch_received: false,
@@ -77,12 +125,16 @@ export async function POST(request: Request) {
       .insert(candidatesData);
 
     if (candidatesError) {
+      if (candidatesError.code === '23505') {
+        const duplicateField = candidatesError.message.includes('srn') ? 'SRN' : 'Email';
+        throw new Error(`Duplicate entry: ${duplicateField} is already registered.`);
+      }
       throw new Error("Failed to insert candidates into the database.");
     }
 
     // 6. Send "Pending Approval" Email to the Team Leader (Asynchronously)
-    const leader = members[0];
-    sendPendingRegistrationEmail(leader.name, leader.email, teamName).catch((err) => {
+    const leader = normalizedMembers[0];
+    sendPendingRegistrationEmail(leader.name, leader.email, normalizedTeamName).catch((err) => {
       console.warn("Failed to send pending email to leader, but registration succeeded.", err);
     });
 
@@ -90,7 +142,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: true, 
       teamNumber, 
-      teamName,
+      teamName: normalizedTeamName,
       status: 'pending' // Tell the frontend to show the pending screen
     });
 
@@ -100,6 +152,10 @@ export async function POST(request: Request) {
     // ROLLBACK MECHANISM: Only need to delete the team now
     if (createdTeamId) {
       await supabaseAdmin.from('teams').delete().eq('id', createdTeamId).catch(console.error);
+    }
+
+    if (normalizedReceiptPath) {
+      await supabaseAdmin.storage.from('receipts').remove([normalizedReceiptPath]).catch(console.error);
     }
 
     return NextResponse.json(

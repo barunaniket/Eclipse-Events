@@ -2,12 +2,33 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { QrCode, Users, CheckCircle2, Coffee, LogOut, Search, X, ScanLine, AlertTriangle, Loader2, Keyboard, UserCheck, Utensils, Hash, ShieldAlert } from "lucide-react";
 import Link from "next/link";
-import { QRScanner } from "@/components/volunteer/QRScanner";
-import { supabase } from "@/lib/supabase";
+import { getAuthHeaders, supabase } from "@/lib/supabase";
+import { DashboardErrorBoundary } from "@/components/shared/DashboardErrorBoundary";
+import type { CandidateDetails, CandidateSummary, TeamSummary } from "@/lib/database.types";
 
 type ScanMode = "is_present" | "lunch_received" | "snacks_received";
+type LiveTeam = {
+  id: string;
+  name: string;
+  teamNumber: number;
+  track: string;
+  size: number;
+  checkedIn: number;
+  lunch: number;
+  snacks: number;
+};
+type VerificationTeam = {
+  id: string;
+  team_name: string;
+  team_number: number;
+  tracks: { title: string } | null;
+  candidates: CandidateDetails[];
+};
+
+const QRScanner = dynamic(() => import("@/components/volunteer/QRScanner").then((module) => module.QRScanner), { ssr: false });
 
 export default function VolunteerDashboard() {
   // Auth State
@@ -21,12 +42,13 @@ export default function VolunteerDashboard() {
   
   const [activeMode, setActiveMode] = useState<ScanMode>("is_present");
 
-  const [verifyingTeam, setVerifyingTeam] = useState<any>(null);
+  const [verifyingTeam, setVerifyingTeam] = useState<VerificationTeam | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
 
-  const [liveTeams, setLiveTeams] = useState<any[]>([]);
+  const [liveTeams, setLiveTeams] = useState<LiveTeam[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [stats, setStats] = useState({ checkedIn: 0, lunches: 0, snacks: 0 });
+  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
 
   useEffect(() => {
     const verifyAccess = async () => {
@@ -62,10 +84,11 @@ export default function VolunteerDashboard() {
           team_number,
           team_size,
           tracks (title),
-          candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
+          candidates (id, is_present, lunch_received, snacks_received)
         `)
         .eq('payment_status', 'approved')
-        .order('team_number', { ascending: false });
+        .order('team_number', { ascending: false })
+        .returns<TeamSummary[]>();
 
       if (error) throw error;
 
@@ -73,12 +96,13 @@ export default function VolunteerDashboard() {
       let totalLunches = 0;
       let totalSnacks = 0;
 
-      const formattedTeams = data.map((team: any) => {
+      const formattedTeams = data.map((team) => {
         let presentCount = 0;
         let lunchCount = 0;
         let snackCount = 0;
 
-        team.candidates.forEach((c: any) => {
+        team.candidates.forEach((candidate) => {
+          const c = candidate as CandidateSummary;
           if (c.is_present) { presentCount++; totalCheckedIn++; }
           if (c.lunch_received) { lunchCount++; totalLunches++; }
           if (c.snacks_received) { snackCount++; totalSnacks++; }
@@ -105,9 +129,35 @@ export default function VolunteerDashboard() {
 
   useEffect(() => {
     if (!isAuthorized) return; 
-    const interval = setInterval(fetchLiveVenueData, 5000);
-    return () => clearInterval(interval);
+
+    const candidatesChannel = supabase
+      .channel('volunteer-candidates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'candidates' }, fetchLiveVenueData)
+      .subscribe();
+
+    const teamsChannel = supabase
+      .channel('volunteer-teams')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, fetchLiveVenueData)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(candidatesChannel);
+      supabase.removeChannel(teamsChannel);
+    };
   }, [isAuthorized]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const handleQRScan = async (input: string) => {
     const trimmedInput = input.trim();
@@ -115,114 +165,33 @@ export default function VolunteerDashboard() {
     setScanState("processing");
 
     try {
-      let teamIdToSearch = trimmedInput;
-      let providedToken = null;
-      let providedUserId = null;
-      let providedMode = null;
+      const response = await fetch('/api/volunteer/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
+        },
+        body: JSON.stringify({
+          action: 'scan',
+          input: trimmedInput,
+          activeMode,
+        }),
+      });
+      const data = await response.json();
 
-      const isNumeric = /^\d+$/.test(trimmedInput);
-
-      if (!isNumeric) {
-        try {
-          const payload = JSON.parse(trimmedInput);
-          teamIdToSearch = payload.teamId || payload.id; 
-          providedToken = payload.token;
-          providedUserId = payload.userId; 
-          providedMode = payload.mode; 
-        } catch (e) {
-          if (trimmedInput.length > 20) {
-            throw new Error("Invalid QR Format. Ask candidate to regenerate.");
-          }
-        }
+      if (!response.ok) {
+        throw new Error(data.error || "Something went wrong.");
       }
 
-      let query = supabase
-        .from('teams')
-        .select(`
-          id,
-          team_name,
-          team_number,
-          qr_token,
-          qr_expires_at,
-          tracks (title),
-          candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
-        `)
-        .eq('payment_status', 'approved');;
-
-      if (isNumeric) {
-        query = query.eq('team_number', parseInt(trimmedInput, 10));
-      } else {
-        query = query.eq('id', teamIdToSearch);
-      }
-
-      const { data: team, error: fetchError } = await query.single();
-
-      if (fetchError || !team) {
-        throw new Error("Invalid Code or Team not found.");
-      }
-
-      if (!isNumeric) {
-        if (providedMode && providedMode !== activeMode) {
-          const modeNames: Record<string, string> = {
-            is_present: "Check-In",
-            lunch_received: "Lunch",
-            snacks_received: "Snacks"
-          };
-          throw new Error(`Pass Mismatch! Candidate presented a ${modeNames[providedMode]} pass, but you are scanning for ${modeNames[activeMode]}.`);
-        }
-
-        if (!providedToken || team.qr_token !== providedToken) {
-          throw new Error("Invalid Security Token. Pass has already been used or manipulated.");
-        }
-
-        const now = new Date();
-        const expiresAt = new Date(team.qr_expires_at);
-
-        // Added 5-second grace period for network latency
-        if (now.getTime() > expiresAt.getTime() + 5000) {
-          throw new Error("QR Code Expired. Ask candidate to tap 'Reveal' again.");
-        }
-      }
-
-      // 4. SMART ROUTING: Instant Scan vs Roster Selection
-      if (activeMode === "is_present" || isNumeric || !providedUserId) {
-        setVerifyingTeam(team);
+      if (data.action === 'verify_team') {
+        setVerifyingTeam(data.team as VerificationTeam);
         setSelectedMembers(new Set());
         setScanState("verify_team");
         if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(50);
-      } 
-      else {
-        const candidate = team.candidates.find((c: any) => c.id === providedUserId);
-        
-        if (!candidate) {
-          throw new Error("Candidate not found in this team.");
-        }
-
-        if (candidate[activeMode]) {
-          throw new Error(`Already Claimed: ${candidate.full_name} has already received this.`);
-        }
-
-        // Instantly update database
-        const { error: updateError } = await supabase
-          .from('candidates')
-          .update({ [activeMode]: true })
-          .eq('id', providedUserId);
-
-        if (updateError) throw updateError;
-
-        // INSTANTLY DESTROY THE TOKEN (One-Time-Use enforcement)
-        await supabase.from('teams').update({ qr_token: null }).eq('id', team.id);
-
+      } else {
         fetchLiveVenueData();
-        
-        const modeLabels = {
-          lunch_received: "Lunch Distributed",
-          snacks_received: "Snacks Distributed",
-          is_present: "Checked In" 
-        };
-
         setScanState("success");
-        setScanMessage(`Verified: ${candidate.full_name} (${modeLabels[activeMode]})`);
+        setScanMessage(data.message);
         if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
       }
 
@@ -243,28 +212,29 @@ export default function VolunteerDashboard() {
     setScanState("processing");
 
     try {
-      const updatePayload = { [activeMode]: true };
-      
-      const { error: updateError } = await supabase
-        .from('candidates')
-        .update(updatePayload)
-        .in('id', Array.from(selectedMembers));
+      const response = await fetch('/api/volunteer/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
+        },
+        body: JSON.stringify({
+          action: 'confirm',
+          teamId: verifyingTeam.id,
+          selectedMemberIds: Array.from(selectedMembers),
+          activeMode,
+        }),
+      });
+      const data = await response.json();
 
-      if (updateError) throw updateError;
-
-      // INSTANTLY DESTROY THE TOKEN for roster approvals too
-      await supabase.from('teams').update({ qr_token: null }).eq('id', verifyingTeam.id);
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update records.");
+      }
 
       fetchLiveVenueData();
 
-      const modeLabels = {
-        is_present: "Checked In",
-        lunch_received: "Lunch Distributed",
-        snacks_received: "Snacks Distributed"
-      };
-
       setScanState("success");
-      setScanMessage(`Successfully recorded: ${modeLabels[activeMode]} for ${selectedMembers.size} member(s).`);
+      setScanMessage(data.message);
       if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
 
     } catch (err: any) {
@@ -327,6 +297,7 @@ export default function VolunteerDashboard() {
   );
 
   return (
+    <DashboardErrorBoundary>
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30">
       
       <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-md border-b border-white/10 px-4 py-3 flex justify-between items-center">
@@ -345,6 +316,14 @@ export default function VolunteerDashboard() {
       </nav>
 
       <main className="p-4 pb-32 max-w-3xl mx-auto">
+        {isOffline && (
+          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-sm text-yellow-300 flex items-center justify-between gap-4">
+            <span>You appear to be offline. Live venue updates and scanner verification are paused.</span>
+            <button onClick={fetchLiveVenueData} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">
+              Retry
+            </button>
+          </div>
+        )}
         
         <div className="bg-white/5 border border-white/10 rounded-xl p-2 flex gap-2 mb-6">
           <button 
@@ -510,7 +489,7 @@ export default function VolunteerDashboard() {
                 </p>
 
                 <div className="space-y-3 flex-grow overflow-y-auto mb-6 pr-2 custom-scrollbar">
-                  {verifyingTeam.candidates.map((candidate: any) => {
+                  {verifyingTeam.candidates.map((candidate) => {
                     const alreadyProcessed = candidate[activeMode];
                     const isSelected = selectedMembers.has(candidate.id);
 
@@ -623,5 +602,6 @@ export default function VolunteerDashboard() {
         </div>
       )}
     </div>
+    </DashboardErrorBoundary>
   );
 }
