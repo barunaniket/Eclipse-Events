@@ -30,6 +30,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [debugInfo, setDebugInfo] = useState<{ status: number; rawText: string; parsed?: any } | null>(null);
   
   const [viewingTrack, setViewingTrack] = useState<{id: string, title: string} | null>(null);
 
@@ -107,6 +108,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError("");
+    setDebugInfo(null);
 
     try {
       if (!teamName.trim()) throw new Error("Team Name is required.");
@@ -162,6 +164,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
         if (data?.dbError) {
           console.error("Registration DB Error:", data.dbError);
         }
+        setDebugInfo({ status: response.status, rawText, parsed: data });
         throw new Error(data?.error || data?.dbError || "Failed to register team via API.");
       }
 
@@ -171,6 +174,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
         teamName: data.teamName,
         status: data.status || 'pending'
       });
+      setDebugInfo(null);
 
     } catch (err: any) {
       console.error("Full Submission Error:", err);
@@ -392,12 +396,27 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col h-full flex-grow">
             <h3 className="text-xl font-semibold mb-6 text-cyan-400">Payment & Verification</h3>
             
-            {submitError && (
-              <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-4 rounded-lg mb-6 text-sm flex items-start gap-3">
-                <AlertTriangle size={20} className="shrink-0 text-red-400" />
-                <span><strong>Error:</strong> {submitError}</span>
-              </div>
-            )}
+          {submitError && (
+            <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-4 rounded-lg mb-6 text-sm flex items-start gap-3">
+              <AlertTriangle size={20} className="shrink-0 text-red-400" />
+              <span><strong>Error:</strong> {submitError}</span>
+            </div>
+          )}
+          {debugInfo && (
+            <div className="bg-white/5 border border-white/10 text-gray-200 p-4 rounded-lg mb-6 text-xs">
+              <p className="text-gray-400 font-mono uppercase tracking-widest mb-2">Debug Details</p>
+              <pre className="whitespace-pre-wrap break-all text-gray-300">
+{JSON.stringify({
+  status: debugInfo.status,
+  dbError: debugInfo.parsed?.dbError,
+  dbCode: debugInfo.parsed?.dbCode,
+  dbDetails: debugInfo.parsed?.dbDetails,
+  dbHint: debugInfo.parsed?.dbHint,
+  rawText: debugInfo.rawText
+}, null, 2)}
+              </pre>
+            </div>
+          )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6 flex-grow">
               <div className="bg-black/40 border border-white/10 rounded-xl p-6">
