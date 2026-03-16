@@ -47,20 +47,34 @@ export async function POST(request: Request) {
     const srns = members.map((m: any) => m.srn.trim().toUpperCase());
 
     // 1. PRE-CHECK: Ensure Emails are Unique
-    const { data: existingEmails } = await supabaseAdmin
+    const { data: existingEmails, error: emailCheckError } = await supabaseAdmin
       .from('candidates')
       .select('email')
       .in('email', emails);
+
+    if (emailCheckError) {
+      return NextResponse.json(
+        { error: "Failed to validate email uniqueness.", dbError: emailCheckError.message, dbCode: emailCheckError.code, dbDetails: emailCheckError.details, dbHint: emailCheckError.hint },
+        { status: 500 }
+      );
+    }
 
     if (existingEmails && existingEmails.length > 0) {
       return NextResponse.json({ error: `Duplicate entry: Email ${existingEmails[0].email} is already registered.` }, { status: 400 });
     }
 
     // 2. PRE-CHECK: Ensure SRNs are Unique
-    const { data: existingSrns } = await supabaseAdmin
+    const { data: existingSrns, error: srnCheckError } = await supabaseAdmin
       .from('candidates')
       .select('srn')
       .in('srn', srns);
+
+    if (srnCheckError) {
+      return NextResponse.json(
+        { error: "Failed to validate SRN uniqueness.", dbError: srnCheckError.message, dbCode: srnCheckError.code, dbDetails: srnCheckError.details, dbHint: srnCheckError.hint },
+        { status: 500 }
+      );
+    }
 
     if (existingSrns && existingSrns.length > 0) {
       return NextResponse.json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
