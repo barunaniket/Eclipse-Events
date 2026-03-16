@@ -154,10 +154,15 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
       }
 
       if (!response.ok) {
+        console.error("Registration API Error Response:", {
+          status: response.status,
+          rawText,
+          parsed: data
+        });
         if (data?.dbError) {
           console.error("Registration DB Error:", data.dbError);
         }
-        throw new Error(data.error || data.dbError || "Failed to register team via API.");
+        throw new Error(data?.error || data?.dbError || "Failed to register team via API.");
       }
 
       // Handle the new pending status

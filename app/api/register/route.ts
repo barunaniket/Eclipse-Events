@@ -81,18 +81,18 @@ export async function POST(request: Request) {
       console.error("Team creation RPC failed:", teamError);
       if (teamError.message.includes('TRACK_FULL')) {
         return NextResponse.json(
-          { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message },
+          { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
           { status: 400 }
         );
       }
       if (teamError.message.includes('INVALID_TRACK')) {
         return NextResponse.json(
-          { error: "Invalid track selected.", dbError: teamError.message },
+          { error: "Invalid track selected.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
           { status: 400 }
         );
       }
       return NextResponse.json(
-        { error: teamError.message || "Failed to create team.", dbError: teamError.message },
+        { error: teamError.message || "Failed to create team.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
         { status: 400 }
       );
     }
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
         }
       }
       return NextResponse.json(
-        { error: candidatesError.message || "Failed to insert candidates into the database." },
+        { error: candidatesError.message || "Failed to insert candidates into the database.", dbError: candidatesError.message, dbCode: candidatesError.code, dbDetails: candidatesError.details, dbHint: candidatesError.hint },
         { status: 500 }
       );
     }
@@ -163,7 +163,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { error: error.message || "Internal server error" },
+      { error: error.message || "Internal server error", dbError: error?.message },
       { status: 500 }
     );
   }
