@@ -1,5 +1,5 @@
 {
-  "name": "eclipse",
+  "name": "eclipse-events",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
   // Add this block below
