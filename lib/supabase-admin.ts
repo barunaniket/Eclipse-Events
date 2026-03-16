@@ -1,15 +1,16 @@
 // lib/supabase-admin.ts
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-// Make sure you added this to your .env.local!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// This client bypasses Row Level Security (RLS). 
-// NEVER use this on the frontend.
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
+// Fallback to placeholder strings so Next.js build doesn't crash when env vars
+// aren't present at build time. The real values are injected at runtime.
+// NEVER import this in client components.
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-key',
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
   }
-});
+);
