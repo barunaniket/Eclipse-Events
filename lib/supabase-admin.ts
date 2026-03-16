@@ -6,13 +6,20 @@ import { createClient } from '@supabase/supabase-js';
 // vars weren't set when the build ran, every admin call hits the placeholder URL.
 // Add SUPABASE_URL to Cloudflare env vars with the same value as NEXT_PUBLIC_SUPABASE_URL.
 // NEVER import this in client components.
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-key',
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl) {
+  throw new Error("Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL).");
+}
+
+if (!serviceRoleKey) {
+  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY. Set it in your server runtime environment.");
+}
+
+export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
   }
-);
+});

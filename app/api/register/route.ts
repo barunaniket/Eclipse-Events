@@ -79,12 +79,21 @@ export async function POST(request: Request) {
 
     if (teamError) {
       if (teamError.message.includes('TRACK_FULL')) {
-        return NextResponse.json({ error: "Registration failed. This track just reached its maximum capacity." }, { status: 400 });
+        return NextResponse.json(
+          { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message },
+          { status: 400 }
+        );
       }
       if (teamError.message.includes('INVALID_TRACK')) {
-        return NextResponse.json({ error: "Invalid track selected." }, { status: 400 });
+        return NextResponse.json(
+          { error: "Invalid track selected.", dbError: teamError.message },
+          { status: 400 }
+        );
       }
-      return NextResponse.json({ error: "Failed to create team. The team name might already be taken." }, { status: 400 });
+      return NextResponse.json(
+        { error: teamError.message || "Failed to create team.", dbError: teamError.message },
+        { status: 400 }
+      );
     }
 
     createdTeamId = teamData[0].new_team_id;
@@ -110,7 +119,17 @@ export async function POST(request: Request) {
       .insert(candidatesData);
 
     if (candidatesError) {
-      throw new Error("Failed to insert candidates into the database.");
+      console.error("Candidate insertion failed. Rolling back team record...", candidatesError);
+      if (createdTeamId) {
+        const { error: rollbackError } = await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
+        if (rollbackError) {
+          console.error("Failed to rollback team after candidate insert error.", rollbackError);
+        }
+      }
+      return NextResponse.json(
+        { error: candidatesError.message || "Failed to insert candidates into the database." },
+        { status: 500 }
+      );
     }
 
     // 6. Send "Pending Approval" Email to the Team Leader (Asynchronously)
