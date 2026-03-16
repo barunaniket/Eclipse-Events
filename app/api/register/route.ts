@@ -4,6 +4,18 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BUILD_TAG =
+  process.env.CF_PAGES_COMMIT_SHA ??
+  process.env.CF_PAGES_COMMIT_HASH ??
+  process.env.GITHUB_SHA ??
+  'unknown';
+
+const json = (body: any, init?: ResponseInit) => {
+  const res = NextResponse.json(body, init);
+  res.headers.set('x-build-tag', BUILD_TAG);
+  res.headers.set('cache-control', 'no-store');
+  return res;
+};
 
 export async function POST(request: Request) {
   let createdTeamId: string | null = null;
@@ -14,32 +26,32 @@ export async function POST(request: Request) {
 
     // Input validation
     if (!teamName || typeof teamName !== 'string' || teamName.trim().length === 0 || teamName.trim().length > 100) {
-      return NextResponse.json({ error: "Invalid team name." }, { status: 400 });
+      return json({ error: "Invalid team name." }, { status: 400 });
     }
     if (!trackId || typeof trackId !== 'string') {
-      return NextResponse.json({ error: "Invalid track selection." }, { status: 400 });
+      return json({ error: "Invalid track selection." }, { status: 400 });
     }
     if (typeof teamSize !== 'number' || teamSize < 1 || teamSize > 4) {
-      return NextResponse.json({ error: "Team size must be between 1 and 4." }, { status: 400 });
+      return json({ error: "Team size must be between 1 and 4." }, { status: 400 });
     }
     if (!receiptUrl || typeof receiptUrl !== 'string' || !receiptUrl.startsWith('https://')) {
-      return NextResponse.json({ error: "Invalid receipt URL." }, { status: 400 });
+      return json({ error: "Invalid receipt URL." }, { status: 400 });
     }
     if (!Array.isArray(members) || members.length !== teamSize) {
-      return NextResponse.json({ error: "Member data is invalid." }, { status: 400 });
+      return json({ error: "Member data is invalid." }, { status: 400 });
     }
     for (const member of members) {
       if (!member.name || !member.email || !member.phone || !member.srn) {
-        return NextResponse.json({ error: "All member fields are required." }, { status: 400 });
+        return json({ error: "All member fields are required." }, { status: 400 });
       }
       if (!EMAIL_REGEX.test(member.email.trim())) {
-        return NextResponse.json({ error: `Invalid email format: ${member.email}` }, { status: 400 });
+        return json({ error: `Invalid email format: ${member.email}` }, { status: 400 });
       }
       if (typeof member.name !== 'string' || member.name.trim().length > 100) {
-        return NextResponse.json({ error: "Invalid member name." }, { status: 400 });
+        return json({ error: "Invalid member name." }, { status: 400 });
       }
       if (typeof member.srn !== 'string' || member.srn.trim().length > 20) {
-        return NextResponse.json({ error: "Invalid SRN format." }, { status: 400 });
+        return json({ error: "Invalid SRN format." }, { status: 400 });
       }
     }
 
@@ -53,14 +65,14 @@ export async function POST(request: Request) {
       .in('email', emails);
 
     if (emailCheckError) {
-      return NextResponse.json(
+      return json(
         { error: "Failed to validate email uniqueness.", dbError: emailCheckError.message, dbCode: emailCheckError.code, dbDetails: emailCheckError.details, dbHint: emailCheckError.hint },
         { status: 500 }
       );
     }
 
     if (existingEmails && existingEmails.length > 0) {
-      return NextResponse.json({ error: `Duplicate entry: Email ${existingEmails[0].email} is already registered.` }, { status: 400 });
+      return json({ error: `Duplicate entry: Email ${existingEmails[0].email} is already registered.` }, { status: 400 });
     }
 
     // 2. PRE-CHECK: Ensure SRNs are Unique
@@ -70,14 +82,14 @@ export async function POST(request: Request) {
       .in('srn', srns);
 
     if (srnCheckError) {
-      return NextResponse.json(
+      return json(
         { error: "Failed to validate SRN uniqueness.", dbError: srnCheckError.message, dbCode: srnCheckError.code, dbDetails: srnCheckError.details, dbHint: srnCheckError.hint },
         { status: 500 }
       );
     }
 
     if (existingSrns && existingSrns.length > 0) {
-      return NextResponse.json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
+      return json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
     }
 
     // 3. ATOMIC CAPACITY CHECK & INSERTION (RPC)
@@ -94,25 +106,25 @@ export async function POST(request: Request) {
     if (teamError) {
       console.error("Team creation RPC failed:", teamError);
       if (teamError.message.includes('TRACK_FULL')) {
-        return NextResponse.json(
+        return json(
           { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
           { status: 400 }
         );
       }
       if (teamError.message.includes('INVALID_TRACK')) {
-        return NextResponse.json(
+        return json(
           { error: "Invalid track selected.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
           { status: 400 }
         );
       }
-      return NextResponse.json(
+      return json(
         { error: teamError.message || "Failed to create team.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
         { status: 400 }
       );
     }
 
     if (!teamData || teamData.length === 0) {
-      return NextResponse.json(
+      return json(
         { error: "Team creation failed.", dbError: "RPC returned no data." },
         { status: 500 }
       );
@@ -148,7 +160,7 @@ export async function POST(request: Request) {
           console.error("Failed to rollback team after candidate insert error.", rollbackError);
         }
       }
-      return NextResponse.json(
+      return json(
         { error: candidatesError.message || "Failed to insert candidates into the database.", dbError: candidatesError.message, dbCode: candidatesError.code, dbDetails: candidatesError.details, dbHint: candidatesError.hint },
         { status: 500 }
       );
@@ -161,7 +173,7 @@ export async function POST(request: Request) {
     });
 
     // 7. Return Success without credentials
-    return NextResponse.json({ 
+    return json({ 
       success: true, 
       teamNumber, 
       teamName,
@@ -176,7 +188,7 @@ export async function POST(request: Request) {
       supabaseAdmin.from('teams').delete().eq('id', createdTeamId).then(null, console.error);
     }
 
-    return NextResponse.json(
+    return json(
       { error: error.message || "Internal server error", dbError: error?.message },
       { status: 500 }
     );
