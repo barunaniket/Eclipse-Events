@@ -44,7 +44,7 @@ export const LoginModule = () => {
           await supabase.auth.signOut();
           throw new Error("Access Denied. You do not have volunteer privileges.");
         }
-        window.location.href = '/volunteer/dashboard';
+        window.location.href = userMeta.role === 'admin' ? '/admin/dashboard' : '/volunteer/dashboard';
       }
 
     } catch (err: any) {
