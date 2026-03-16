@@ -78,6 +78,7 @@ export async function POST(request: Request) {
     );
 
     if (teamError) {
+      console.error("Team creation RPC failed:", teamError);
       if (teamError.message.includes('TRACK_FULL')) {
         return NextResponse.json(
           { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message },
@@ -93,6 +94,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: teamError.message || "Failed to create team.", dbError: teamError.message },
         { status: 400 }
+      );
+    }
+
+    if (!teamData || teamData.length === 0) {
+      return NextResponse.json(
+        { error: "Team creation failed.", dbError: "RPC returned no data." },
+        { status: 500 }
       );
     }
 
