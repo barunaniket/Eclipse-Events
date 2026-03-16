@@ -2,8 +2,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendCredentialEmail } from '@/lib/mailer';
-import { randomBytes } from 'crypto';
-
 export async function POST(request: Request) {
   const createdAuthIds: string[] = [];
 
@@ -53,7 +51,9 @@ export async function POST(request: Request) {
     // 2. Create Auth Accounts for each candidate securely
     for (const candidate of candidates) {
       // Generate cryptographically secure 8-character password
-      const randomString = randomBytes(4).toString('hex').toUpperCase();
+      const buf = new Uint8Array(4);
+      crypto.getRandomValues(buf);
+      const randomString = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
       const generatedPassword = `Eclipse-${randomString}!`;
       const roleLabel = candidate.is_leader ? 'Team Leader' : 'Team Member';
 

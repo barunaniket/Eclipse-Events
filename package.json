@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:cf": "opennextjs-cloudflare build",
+    "deploy": "opennextjs-cloudflare build && wrangler pages deploy",
     "start": "next start",
     "lint": "eslint"
   },
@@ -16,7 +18,6 @@
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
-    "nodemailer": "^8.0.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
@@ -26,8 +27,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@opennextjs/cloudflare": "^1",
     "@types/node": "^20",
-    "@types/nodemailer": "^7.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
