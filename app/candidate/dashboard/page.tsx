@@ -64,7 +64,7 @@ export default function CandidateDashboard() {
         id: teamData.id,
         name: teamData.team_name,
         number: teamData.team_number,
-        track: teamData.tracks?.title || "Unknown Track",
+        track: (teamData.tracks as any)?.title || "Unknown Track",
         members: teamData.candidates.sort((a: any, b: any) => b.is_leader - a.is_leader)
       });
       
@@ -77,21 +77,29 @@ export default function CandidateDashboard() {
     }
   };
 
-  // REALTIME LISTENER
+  // Initial data fetch
   useEffect(() => {
     fetchTeamData();
-    
+  }, []);
+
+  // Realtime listener — only subscribes after team.id is known, and filters to this team only
+  useEffect(() => {
+    if (!team?.id) return;
+
     const subscription = supabase
-      .channel('public:candidates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates' }, 
-        () => { 
-          fetchTeamData(); 
-        }
-      )
+      .channel(`team-candidates-${team.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'candidates',
+        filter: `team_id=eq.${team.id}`
+      }, () => {
+        fetchTeamData();
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(subscription); };
-  }, []);
+  }, [team?.id]);
 
   // INSTANT QR KILL SWITCH
   useEffect(() => {
@@ -119,9 +127,13 @@ export default function CandidateDashboard() {
   const handleGenerateQR = async () => {
     setIsGenerating(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/generate-qr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token ?? ''}`
+        },
         body: JSON.stringify({ teamId: team.id })
       });
 

@@ -2,15 +2,27 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendCredentialEmail } from '@/lib/mailer';
+import { randomBytes } from 'crypto';
 
 export async function POST(request: Request) {
   const createdAuthIds: string[] = [];
 
   try {
+    // Verify caller is an admin
+    const authHeader = request.headers.get('authorization');
+    const accessToken = authHeader?.replace('Bearer ', '');
+    if (!accessToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: { user: adminUser }, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+    if (authError || !adminUser || adminUser.user_metadata?.role !== 'admin') {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+    }
+
     const body = await request.json();
     const { teamId } = body;
 
-    if (!teamId) {
+    if (!teamId || typeof teamId !== 'string') {
       return NextResponse.json({ error: "Team ID is required" }, { status: 400 });
     }
 
@@ -40,8 +52,8 @@ export async function POST(request: Request) {
 
     // 2. Create Auth Accounts for each candidate securely
     for (const candidate of candidates) {
-      // Generate secure 8-character password
-      const randomString = Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Generate cryptographically secure 8-character password
+      const randomString = randomBytes(4).toString('hex').toUpperCase();
       const generatedPassword = `Eclipse-${randomString}!`;
       const roleLabel = candidate.is_leader ? 'Team Leader' : 'Team Member';
 

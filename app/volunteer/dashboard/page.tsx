@@ -103,10 +103,21 @@ export default function VolunteerDashboard() {
     }
   };
 
+  // Realtime subscription replaces the 5s polling interval
   useEffect(() => {
-    if (!isAuthorized) return; 
-    const interval = setInterval(fetchLiveVenueData, 5000);
-    return () => clearInterval(interval);
+    if (!isAuthorized) return;
+
+    const subscription = supabase
+      .channel('volunteer-venue-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates' },
+        () => { fetchLiveVenueData(); }
+      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teams' },
+        () => { fetchLiveVenueData(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(subscription); };
   }, [isAuthorized]);
 
   const handleQRScan = async (input: string) => {
@@ -189,7 +200,7 @@ export default function VolunteerDashboard() {
         setVerifyingTeam(team);
         setSelectedMembers(new Set());
         setScanState("verify_team");
-        if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(50);
+        if (typeof window !== "undefined") navigator.vibrate?.(50);
       } 
       else {
         const candidate = team.candidates.find((c: any) => c.id === providedUserId);
@@ -223,14 +234,14 @@ export default function VolunteerDashboard() {
 
         setScanState("success");
         setScanMessage(`Verified: ${candidate.full_name} (${modeLabels[activeMode]})`);
-        if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
+        if (typeof window !== "undefined") navigator.vibrate?.(200);
       }
 
     } catch (err: any) {
       console.error(err);
       setScanState("error");
       setScanMessage(err.message || "Something went wrong.");
-      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate([300, 100, 300]);
+      if (typeof window !== "undefined") navigator.vibrate?.([300, 100, 300]);
     }
   };
 
@@ -265,13 +276,13 @@ export default function VolunteerDashboard() {
 
       setScanState("success");
       setScanMessage(`Successfully recorded: ${modeLabels[activeMode]} for ${selectedMembers.size} member(s).`);
-      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate(200);
+      if (typeof window !== "undefined") navigator.vibrate?.(200);
 
     } catch (err: any) {
       console.error(err);
       setScanState("error");
       setScanMessage(err.message || "Failed to update records.");
-      if (typeof window !== "undefined" && window.navigator.vibrate) navigator.vibrate([300, 100, 300]);
+      if (typeof window !== "undefined") navigator.vibrate?.([300, 100, 300]);
     }
   };
 

@@ -5,11 +5,26 @@ import { sendRejectionEmail } from '@/lib/mailer';
 
 export async function POST(request: Request) {
   try {
+    // Verify caller is an admin
+    const authHeader = request.headers.get('authorization');
+    const accessToken = authHeader?.replace('Bearer ', '');
+    if (!accessToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: { user: adminUser }, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+    if (authError || !adminUser || adminUser.user_metadata?.role !== 'admin') {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+    }
+
     const body = await request.json();
     const { teamId, reason } = body;
 
-    if (!teamId || !reason) {
+    if (!teamId || typeof teamId !== 'string' || !reason || typeof reason !== 'string') {
       return NextResponse.json({ error: "Team ID and Rejection Reason are required" }, { status: 400 });
+    }
+
+    if (reason.trim().length > 500) {
+      return NextResponse.json({ error: "Rejection reason is too long." }, { status: 400 });
     }
 
     // 1. Fetch the Team and the Leader's details before we delete them

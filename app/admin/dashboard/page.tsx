@@ -74,12 +74,16 @@ export default function AdminDashboard() {
 
   const handleApprove = async (teamId: string) => {
     if (!confirm("Are you sure you want to approve this team? This will generate credentials and email them instantly.")) return;
-    
+
     setProcessingId(teamId);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/admin/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token ?? ''}`
+        },
         body: JSON.stringify({ teamId })
       });
 
@@ -98,13 +102,17 @@ export default function AdminDashboard() {
 
   const handleReject = async (teamId: string) => {
     const reason = prompt("Enter a reason for rejection (this will be emailed to the leader):", "Invalid payment receipt.");
-    if (reason === null) return; 
-    
+    if (reason === null) return;
+
     setProcessingId(teamId);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/admin/reject', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token ?? ''}`
+        },
         body: JSON.stringify({ teamId, reason })
       });
 

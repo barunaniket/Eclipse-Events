@@ -3,12 +3,45 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function POST(request: Request) {
   let createdTeamId: string | null = null;
 
   try {
     const body = await request.json();
     const { teamName, trackId, teamSize, receiptUrl, members } = body;
+
+    // Input validation
+    if (!teamName || typeof teamName !== 'string' || teamName.trim().length === 0 || teamName.trim().length > 100) {
+      return NextResponse.json({ error: "Invalid team name." }, { status: 400 });
+    }
+    if (!trackId || typeof trackId !== 'string') {
+      return NextResponse.json({ error: "Invalid track selection." }, { status: 400 });
+    }
+    if (typeof teamSize !== 'number' || teamSize < 1 || teamSize > 4) {
+      return NextResponse.json({ error: "Team size must be between 1 and 4." }, { status: 400 });
+    }
+    if (!receiptUrl || typeof receiptUrl !== 'string' || !receiptUrl.startsWith('https://')) {
+      return NextResponse.json({ error: "Invalid receipt URL." }, { status: 400 });
+    }
+    if (!Array.isArray(members) || members.length !== teamSize) {
+      return NextResponse.json({ error: "Member data is invalid." }, { status: 400 });
+    }
+    for (const member of members) {
+      if (!member.name || !member.email || !member.phone || !member.srn) {
+        return NextResponse.json({ error: "All member fields are required." }, { status: 400 });
+      }
+      if (!EMAIL_REGEX.test(member.email.trim())) {
+        return NextResponse.json({ error: `Invalid email format: ${member.email}` }, { status: 400 });
+      }
+      if (typeof member.name !== 'string' || member.name.trim().length > 100) {
+        return NextResponse.json({ error: "Invalid member name." }, { status: 400 });
+      }
+      if (typeof member.srn !== 'string' || member.srn.trim().length > 20) {
+        return NextResponse.json({ error: "Invalid SRN format." }, { status: 400 });
+      }
+    }
 
     const emails = members.map((m: any) => m.email.trim().toLowerCase());
     const srns = members.map((m: any) => m.srn.trim().toUpperCase());
@@ -99,7 +132,7 @@ export async function POST(request: Request) {
 
     // ROLLBACK MECHANISM: Only need to delete the team now
     if (createdTeamId) {
-      await supabaseAdmin.from('teams').delete().eq('id', createdTeamId).catch(console.error);
+      supabaseAdmin.from('teams').delete().eq('id', createdTeamId).then(null, console.error);
     }
 
     return NextResponse.json(
