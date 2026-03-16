@@ -14,15 +14,19 @@ interface Track {
   registeredTeams: number;
 }
 
-export const DynamicRegistrationForm = () => {
+interface Props {
+  initialTracks?: Track[];
+}
+
+export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
   const [step, setStep] = useState(1);
   const [teamSize, setTeamSize] = useState(2);
   const [selectedProblem, setSelectedProblem] = useState("");
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [teamName, setTeamName] = useState("");
 
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [isLoadingTracks, setIsLoadingTracks] = useState(true);
+  const [tracks, setTracks] = useState<Track[]>(initialTracks ?? []);
+  const [isLoadingTracks, setIsLoadingTracks] = useState(!initialTracks);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -37,6 +41,9 @@ export const DynamicRegistrationForm = () => {
   );
 
   useEffect(() => {
+    // Skip client-side fetch if tracks were already provided server-side
+    if (initialTracks) return;
+
     const fetchLiveTracks = async () => {
       try {
         const { data, error } = await supabase
@@ -46,15 +53,13 @@ export const DynamicRegistrationForm = () => {
 
         if (error) throw error;
 
-        const liveTracks = data.map((track: any) => ({
+        setTracks(data.map((track: any) => ({
           id: track.id,
           title: track.title,
           description: track.description,
           maxTeams: track.max_teams,
-          registeredTeams: track.teams[0]?.count || 0, 
-        }));
-
-        setTracks(liveTracks);
+          registeredTeams: track.teams[0]?.count || 0,
+        })));
       } catch (err) {
         console.error("Failed to fetch live tracks:", err);
       } finally {
