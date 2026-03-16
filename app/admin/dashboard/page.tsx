@@ -101,7 +101,14 @@ export default function AdminDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to approve team");
 
-      alert(`Success! Team approved and credentials emailed to ${data.emailsSent} members.`);
+      if (data.emailsFailed && data.emailsFailed > 0) {
+        const failureList = (data.emailFailures || [])
+          .map((f: any) => `${f.email}: ${f.reason}`)
+          .join("\n");
+        alert(`Team approved, but ${data.emailsFailed} email(s) failed:\n${failureList || 'Unknown email error'}`);
+      } else {
+        alert(`Success! Team approved and credentials emailed to ${data.emailsSent} members.`);
+      }
       fetchTeams(); 
     } catch (error: any) {
       console.error(error);

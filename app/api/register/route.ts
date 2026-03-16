@@ -166,18 +166,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. Send "Pending Approval" Email to the Team Leader (Asynchronously)
+    // 6. Send "Pending Approval" Email to the Team Leader (capture errors for debugging)
     const leader = members[0];
-    sendPendingRegistrationEmail(leader.name, leader.email, teamName).catch((err) => {
+    let emailStatus: 'sent' | 'failed' = 'sent';
+    let emailError: string | null = null;
+    try {
+      await sendPendingRegistrationEmail(leader.name, leader.email, teamName);
+    } catch (err: any) {
+      emailStatus = 'failed';
+      emailError = err?.message || 'Unknown email error';
       console.warn("Failed to send pending email to leader, but registration succeeded.", err);
-    });
+    }
 
     // 7. Return Success without credentials
     return json({ 
       success: true, 
       teamNumber, 
       teamName,
-      status: 'pending' // Tell the frontend to show the pending screen
+      status: 'pending', // Tell the frontend to show the pending screen
+      emailStatus,
+      emailError
     });
 
   } catch (error: any) {

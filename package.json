@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:cf": "opennextjs-cloudflare build",
+    "deploy:worker": "opennextjs-cloudflare build && wrangler deploy",
     "deploy": "opennextjs-cloudflare build && wrangler pages deploy",
     "start": "next start",
     "lint": "eslint"

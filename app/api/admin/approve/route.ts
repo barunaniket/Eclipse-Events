@@ -45,8 +45,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This team has already been approved." }, { status: 400 });
     }
 
-    const candidates = team.candidates;
-    const generatedCredentials = [];
+    const candidates = team.candidates as Array<{
+      id: string;
+      full_name: string;
+      email: string;
+      srn: string;
+      is_leader: boolean;
+    }>;
+    const generatedCredentials: Array<{
+      name: string;
+      email: string;
+      password: string;
+      role: string;
+    }> = [];
 
     // 2. Create Auth Accounts for each candidate securely
     for (const candidate of candidates) {
@@ -96,29 +107,40 @@ export async function POST(request: Request) {
       throw new Error("Failed to update team status to approved in the database.");
     }
 
-    // 4. Dispatch Emails Asynchronously
+    // 4. Dispatch Emails (await so Workers don't drop the tasks)
     // We pass the team_number here so it renders in the email!
-    Promise.allSettled(
-      generatedCredentials.map(cred => 
+    const emailResults = await Promise.allSettled(
+      generatedCredentials.map(cred =>
         sendCredentialEmail(
-          cred.name, 
-          cred.email, 
-          cred.password, 
+          cred.name,
+          cred.email,
+          cred.password,
           team.team_name,
-          team.team_number, 
+          team.team_number,
           cred.role
         )
       )
-    ).then(results => {
-      const failures = results.filter(r => r.status === 'rejected');
-      if (failures.length > 0) {
-        console.warn(`${failures.length} approval emails failed to send for team ${team.team_name}.`);
-      }
-    });
+    );
 
-    return NextResponse.json({ 
-      success: true, 
-      emailsSent: generatedCredentials.length
+    const emailFailures = emailResults
+      .map((result, idx) => {
+        if (result.status === 'rejected') {
+          const reason = (result.reason && (result.reason.message || String(result.reason))) || 'Unknown error';
+          return { email: generatedCredentials[idx].email, reason };
+        }
+        return null;
+      })
+      .filter(Boolean) as Array<{ email: string; reason: string }>;
+
+    if (emailFailures.length > 0) {
+      console.warn(`${emailFailures.length} approval emails failed to send for team ${team.team_name}.`, emailFailures);
+    }
+
+    return NextResponse.json({
+      success: true,
+      emailsSent: generatedCredentials.length - emailFailures.length,
+      emailsFailed: emailFailures.length,
+      emailFailures
     });
 
   } catch (error: any) {

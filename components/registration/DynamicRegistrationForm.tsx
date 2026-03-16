@@ -35,7 +35,13 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
   const [viewingTrack, setViewingTrack] = useState<{id: string, title: string} | null>(null);
 
   // Updated state to handle the pending status instead of credentials
-  const [successData, setSuccessData] = useState<{ teamNumber: number; teamName: string; status: string } | null>(null);
+  const [successData, setSuccessData] = useState<{
+    teamNumber: number;
+    teamName: string;
+    status: string;
+    emailStatus?: 'sent' | 'failed';
+    emailError?: string | null;
+  } | null>(null);
 
   const [members, setMembers] = useState(
     Array(4).fill({ name: "", email: "", phone: "", srn: "" })
@@ -172,7 +178,9 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
       setSuccessData({
         teamNumber: data.teamNumber,
         teamName: data.teamName,
-        status: data.status || 'pending'
+        status: data.status || 'pending',
+        emailStatus: data.emailStatus,
+        emailError: data.emailError
       });
       setDebugInfo(null);
 
@@ -211,6 +219,13 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
             <p className="text-sm text-gray-200">Once your payment is verified, <strong>all team members</strong> will receive individual emails containing their secure passwords to access the Participant Hub.</p>
           </div>
         </div>
+
+        {successData.emailStatus === 'failed' && (
+          <div className="w-full max-w-md bg-red-500/10 border border-red-500/40 rounded-xl p-4 mb-6 text-sm text-red-200">
+            <p className="font-semibold mb-1">Email delivery failed.</p>
+            <p className="text-red-300 break-all">{successData.emailError || 'Unknown error'}</p>
+          </div>
+        )}
 
         <button 
           onClick={() => window.location.href = '/'} 
