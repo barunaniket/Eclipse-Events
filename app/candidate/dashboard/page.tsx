@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import QRCode from "react-qr-code";
-import { LogOut, MapPin, Coffee, Utensils, CheckCircle2, Users, Hash, Loader2, ShieldAlert, User as UserIcon, QrCode, Timer } from "lucide-react";
+import { LogOut, MapPin, Coffee, Utensils, CheckCircle2, Users, Hash, Loader2, ShieldAlert, User as UserIcon, QrCode, Timer, Clock, Radio } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type QRMode = 'is_present' | 'lunch_received' | 'snacks_received';
@@ -11,6 +11,7 @@ type QRMode = 'is_present' | 'lunch_received' | 'snacks_received';
 export default function CandidateDashboard() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [authMessage, setAuthMessage] = useState("Verifying event pass...");
+  const [eventIsLive, setEventIsLive] = useState<boolean | null>(null);
 
   const [team, setTeam] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -67,7 +68,17 @@ export default function CandidateDashboard() {
         track: (teamData.tracks as any)?.title || "Unknown Track",
         members: teamData.candidates.sort((a: any, b: any) => b.is_leader - a.is_leader)
       });
-      
+
+      // Fetch event status (only needed on first load; realtime subscription handles updates)
+      if (eventIsLive === null) {
+        const { data: settings } = await supabase
+          .from('event_settings')
+          .select('is_live')
+          .eq('id', 1)
+          .single();
+        setEventIsLive(settings?.is_live ?? false);
+      }
+
       setIsAuthorized(true);
 
     } catch (err) {
@@ -100,6 +111,23 @@ export default function CandidateDashboard() {
 
     return () => { supabase.removeChannel(subscription); };
   }, [team?.id]);
+
+  // Realtime listener for event_settings — updates candidate view instantly when admin toggles
+  useEffect(() => {
+    const subscription = supabase
+      .channel('event-settings-live')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'event_settings',
+        filter: 'id=eq.1'
+      }, (payload: any) => {
+        setEventIsLive(payload.new.is_live);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(subscription); };
+  }, []);
 
   // INSTANT QR KILL SWITCH
   useEffect(() => {
@@ -134,12 +162,17 @@ export default function CandidateDashboard() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token ?? ''}`
         },
-        body: JSON.stringify({ teamId: team.id })
+        body: JSON.stringify({ teamId: team.id, mode: qrMode })
       });
 
       const data = await response.json();
 
       if (!response.ok) {
+        // Race condition: verified mid-request — refresh silently, don't alert
+        if (response.status === 409 && data.error === "ALREADY_VERIFIED") {
+          fetchTeamData();
+          return;
+        }
         throw new Error(data.error || "Failed to generate security token.");
       }
 
@@ -160,7 +193,7 @@ export default function CandidateDashboard() {
     window.location.href = '/'; 
   };
 
-  if (!isAuthorized || !team || !currentUser) {
+  if (!isAuthorized || !team || !currentUser || eventIsLive === null) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
         {authMessage.includes("Denied") || authMessage.includes("Error") ? (
@@ -169,6 +202,79 @@ export default function CandidateDashboard() {
           <Loader2 className="animate-spin mb-4" size={48} />
         )}
         <p className="font-mono tracking-widest text-xs uppercase text-gray-400 text-center max-w-xs">{authMessage}</p>
+      </div>
+    );
+  }
+
+  // PRE-EVENT VIEW — shown when admin hasn't toggled the event live yet
+  if (!eventIsLive) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-cyan-500/30 pb-24">
+        <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 px-5 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-cyan-500 to-blue-600 p-1.5 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+              <Users className="text-white" size={16} />
+            </div>
+            <h1 className="font-bold text-white leading-tight text-sm tracking-wide">Participant Hub</h1>
+          </div>
+          <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-full border border-white/5">
+            <LogOut size={16} />
+          </button>
+        </nav>
+
+        <main className="p-5 max-w-md mx-auto flex flex-col items-center animate-in fade-in duration-500">
+
+          {/* Waiting banner */}
+          <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-yellow-500/20 rounded-3xl p-8 mb-6 flex flex-col items-center text-center shadow-2xl">
+            <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mb-5 border border-yellow-500/20">
+              <Clock size={28} className="text-yellow-400" />
+            </div>
+            <h2 className="font-black text-xl text-white mb-2">Event Hasn't Started Yet</h2>
+            <p className="text-sm text-gray-400 leading-relaxed max-w-xs">Your registration is confirmed. Your digital passes and QR codes will unlock once the event goes live.</p>
+            <div className="flex items-center gap-2 mt-5 bg-yellow-500/10 border border-yellow-500/20 px-4 py-2 rounded-full">
+              <Radio size={14} className="text-yellow-400" />
+              <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest">Waiting for event signal</span>
+            </div>
+          </div>
+
+          {/* Profile card — same as full dashboard */}
+          <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
+
+            <div className="flex items-center gap-4 mb-5 border-b border-white/5 pb-5">
+              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black border-2 border-cyan-500/30 flex items-center justify-center text-lg font-black text-cyan-400 shadow-inner">
+                {getInitials(currentUser.full_name)}
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white leading-tight">{currentUser.full_name}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
+                    <Hash size={12} /> {currentUser.srn}
+                  </span>
+                  {currentUser.is_leader && (
+                    <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
+                      Leader
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-black/50 rounded-xl p-4 border border-white/5">
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Official Team</span>
+                <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20">
+                  #{team.number.toString().padStart(3, '0')}
+                </span>
+              </div>
+              <p className="font-bold text-white text-lg mb-1">{team.name}</p>
+              <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                <ShieldAlert size={12} className="text-cyan-500" /> {team.track}
+              </p>
+            </div>
+          </div>
+
+        </main>
       </div>
     );
   }

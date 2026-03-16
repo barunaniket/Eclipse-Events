@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 // Added Clock to the imports here!
-import { ShieldAlert, Loader2, LogOut, CheckCircle2, XCircle, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock } from "lucide-react";
+import { ShieldAlert, Loader2, LogOut, CheckCircle2, XCircle, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, Radio, RadioTower } from "lucide-react";
 
 type TeamStatus = 'pending' | 'approved';
 
@@ -20,10 +20,13 @@ export default function AdminDashboard() {
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  const [eventIsLive, setEventIsLive] = useState<boolean | null>(null);
+  const [isTogglingEvent, setIsTogglingEvent] = useState(false);
+
   useEffect(() => {
     const verifyAccess = async () => {
       const { data: { user }, error } = await supabase.auth.getUser();
-      
+
       if (error || !user) {
         setAuthMessage("Authentication required. Redirecting to login...");
         setTimeout(() => window.location.href = '/', 2000);
@@ -36,6 +39,14 @@ export default function AdminDashboard() {
         setTimeout(() => window.location.href = '/', 2000);
         return;
       }
+
+      // Fetch event status
+      const { data: settings } = await supabase
+        .from('event_settings')
+        .select('is_live')
+        .eq('id', 1)
+        .single();
+      setEventIsLive(settings?.is_live ?? false);
 
       setIsAuthorized(true);
       fetchTeams();
@@ -129,9 +140,30 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleToggleEvent = async () => {
+    const action = eventIsLive ? "go OFFLINE" : "go LIVE";
+    if (!confirm(`Are you sure you want to set the event to ${action.toUpperCase()}? This will immediately affect all logged-in candidates.`)) return;
+
+    setIsTogglingEvent(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/toggle-event', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token ?? ''}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to toggle event");
+      setEventIsLive(data.is_live);
+    } catch (error: any) {
+      alert(error.message);
+    } finally {
+      setIsTogglingEvent(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.href = '/'; 
+    window.location.href = '/';
   };
 
   if (!isAuthorized) {
@@ -166,9 +198,29 @@ export default function AdminDashboard() {
             <p className="text-xs text-purple-400 font-mono tracking-widest uppercase">God Mode Control</p>
           </div>
         </div>
-        <button onClick={handleLogout} className="flex items-center gap-2 text-gray-400 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-lg border border-white/5 font-bold text-sm">
-          <LogOut size={16} /> Logout
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleToggleEvent}
+            disabled={isTogglingEvent || eventIsLive === null}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all disabled:opacity-50 border ${
+              eventIsLive
+                ? 'bg-green-500/15 text-green-400 border-green-500/40 hover:bg-red-500/15 hover:text-red-400 hover:border-red-500/40'
+                : 'bg-gray-500/10 text-gray-400 border-gray-500/30 hover:bg-green-500/15 hover:text-green-400 hover:border-green-500/40'
+            }`}
+          >
+            {isTogglingEvent ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : eventIsLive ? (
+              <RadioTower size={16} className="animate-pulse" />
+            ) : (
+              <Radio size={16} />
+            )}
+            {eventIsLive ? 'Event: LIVE' : 'Event: OFFLINE'}
+          </button>
+          <button onClick={handleLogout} className="flex items-center gap-2 text-gray-400 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-lg border border-white/5 font-bold text-sm">
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
       </nav>
 
       <main className="max-w-7xl mx-auto p-6">

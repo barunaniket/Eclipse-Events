@@ -1,8 +1,6 @@
 // app/api/generate-qr/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { randomBytes } from 'crypto';
-
 export async function POST(request: Request) {
   try {
     // Verify caller is authenticated
@@ -16,10 +14,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { teamId } = await request.json();
+    const { teamId, mode } = await request.json();
 
     if (!teamId || typeof teamId !== 'string') {
       return NextResponse.json({ error: "Missing team ID" }, { status: 400 });
+    }
+
+    const validModes = ['is_present', 'lunch_received', 'snacks_received'];
+    if (!mode || !validModes.includes(mode)) {
+      return NextResponse.json({ error: "Invalid or missing mode" }, { status: 400 });
     }
 
     // Ensure the authenticated user belongs to this team
@@ -27,9 +30,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Server-side guard: reject if this candidate is already verified for the requested mode
+    const { data: candidate } = await supabaseAdmin
+      .from('candidates')
+      .select('is_present, lunch_received, snacks_received')
+      .eq('email', user.email!)
+      .eq('team_id', teamId)
+      .single();
+
+    if (candidate && candidate[mode as 'is_present' | 'lunch_received' | 'snacks_received']) {
+      return NextResponse.json({ error: "ALREADY_VERIFIED" }, { status: 409 });
+    }
+
     // Generate a cryptographically secure 6-character alphanumeric token
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const bytes = randomBytes(6);
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
     const token = Array.from(bytes).map(b => chars[b % chars.length]).join('');
 
     // Set expiry to exactly 30 seconds from right now
