@@ -4,6 +4,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CYCLE_PREFIX = "PES2UG25";
+const CYCLE_OPTIONS = new Set(["physics", "chemistry"]);
 const BUILD_TAG =
   process.env.CF_PAGES_COMMIT_SHA ??
   process.env.CF_PAGES_COMMIT_HASH ??
@@ -52,6 +54,12 @@ export async function POST(request: Request) {
       }
       if (typeof member.srn !== 'string' || member.srn.trim().length > 20) {
         return json({ error: "Invalid SRN format." }, { status: 400 });
+      }
+      const srnUpper = member.srn.trim().toUpperCase();
+      if (srnUpper.startsWith(CYCLE_PREFIX)) {
+        if (typeof member.cycle !== 'string' || !CYCLE_OPTIONS.has(member.cycle)) {
+          return json({ error: `Cycle selection is required for SRN ${srnUpper}.` }, { status: 400 });
+        }
       }
     }
 
@@ -135,17 +143,22 @@ export async function POST(request: Request) {
     const teamNumber = teamData[0].new_team_number;
 
     // 4. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
-    const candidatesData = members.map((member: any, index: number) => ({
+    const candidatesData = members.map((member: any, index: number) => {
+      const srnUpper = member.srn.trim().toUpperCase();
+      const needsCycle = srnUpper.startsWith(CYCLE_PREFIX);
+      return {
       team_id: teamId,
       is_leader: index === 0,
       full_name: member.name,
-      srn: member.srn.trim().toUpperCase(),
+      srn: srnUpper,
       email: member.email.trim().toLowerCase(),
       phone: member.phone,
+      cycle: needsCycle ? member.cycle : null,
       is_present: false,
       lunch_received: false,
       snacks_received: false
-    }));
+      };
+    });
 
     // 5. Insert Candidates into the Database
     const { error: candidatesError } = await supabaseAdmin

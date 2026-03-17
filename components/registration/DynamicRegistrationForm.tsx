@@ -44,8 +44,10 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
   } | null>(null);
 
   const [members, setMembers] = useState(
-    Array(4).fill({ name: "", email: "", phone: "", srn: "" })
+    Array(4).fill({ name: "", email: "", phone: "", srn: "", cycle: "" })
   );
+
+  const needsCycle = (srn: string) => srn.trim().toUpperCase().startsWith("PES2UG25");
 
   useEffect(() => {
     // Skip client-side fetch if tracks were already provided server-side
@@ -79,7 +81,11 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
 
   const handleMemberChange = (index: number, field: string, value: string) => {
     const updatedMembers = [...members];
-    updatedMembers[index] = { ...updatedMembers[index], [field]: value };
+    const nextMember = { ...updatedMembers[index], [field]: value };
+    if (field === "srn" && !needsCycle(value)) {
+      nextMember.cycle = "";
+    }
+    updatedMembers[index] = nextMember;
     setMembers(updatedMembers);
   };
 
@@ -383,6 +389,21 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
                      <input type="text" placeholder="PESU SRN" required value={members[index].srn} onChange={(e) => handleMemberChange(index, "srn", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors uppercase" />
                    </div>
+                   {needsCycle(members[index].srn) && (
+                     <div className="relative">
+                       <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                       <select
+                         required
+                         value={members[index].cycle}
+                         onChange={(e) => handleMemberChange(index, "cycle", e.target.value)}
+                         className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
+                       >
+                         <option className="bg-gray-900" value="">Select Cycle</option>
+                         <option className="bg-gray-900" value="physics">Physics Cycle</option>
+                         <option className="bg-gray-900" value="chemistry">Chemistry Cycle</option>
+                       </select>
+                     </div>
+                   )}
                    <div className="relative">
                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
                      <input type="email" placeholder="Email Address" required value={members[index].email} onChange={(e) => handleMemberChange(index, "email", e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors" />
