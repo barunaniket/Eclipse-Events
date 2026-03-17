@@ -27,6 +27,7 @@ export default function VolunteerDashboard() {
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [stats, setStats] = useState({ checkedIn: 0, lunches: 0, snacks: 0 });
+  const needsCycle = (srn?: string) => (srn || "").trim().toUpperCase().startsWith("PES2UG25");
 
   useEffect(() => {
     const verifyAccess = async () => {
@@ -62,7 +63,7 @@ export default function VolunteerDashboard() {
           team_number,
           team_size,
           tracks (title),
-          candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
+          candidates (id, full_name, srn, cycle, is_leader, is_present, lunch_received, snacks_received)
         `)
         .eq('payment_status', 'approved')
         .order('team_number', { ascending: false });
@@ -156,7 +157,7 @@ export default function VolunteerDashboard() {
           qr_token,
           qr_expires_at,
           tracks (title),
-          candidates (id, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
+          candidates (id, full_name, srn, cycle, is_leader, is_present, lunch_received, snacks_received)
         `)
         .eq('payment_status', 'approved');;
 
@@ -545,6 +546,9 @@ export default function VolunteerDashboard() {
                           <p className="text-xs text-gray-500 font-mono mt-1 flex items-center gap-1">
                             <Hash size={12} /> {candidate.srn}
                           </p>
+                          {needsCycle(candidate.srn) && candidate.cycle && (
+                            <p className="text-[10px] text-cyan-300 font-mono uppercase mt-1">Cycle: {candidate.cycle}</p>
+                          )}
                         </div>
                         
                         <div>

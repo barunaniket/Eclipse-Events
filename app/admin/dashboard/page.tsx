@@ -22,6 +22,7 @@ export default function AdminDashboard() {
 
   const [eventIsLive, setEventIsLive] = useState<boolean | null>(null);
   const [isTogglingEvent, setIsTogglingEvent] = useState(false);
+  const needsCycle = (srn?: string) => (srn || "").trim().toUpperCase().startsWith("PES2UG25");
 
   useEffect(() => {
     const verifyAccess = async () => {
@@ -68,7 +69,7 @@ export default function AdminDashboard() {
           payment_status,
           receipt_url,
           tracks (title),
-          candidates (id, full_name, email, srn, is_leader)
+          candidates (id, full_name, email, srn, cycle, is_leader)
         `)
         // Swapped created_at for team_number to prevent schema errors
         .order('team_number', { ascending: false });
@@ -309,6 +310,22 @@ export default function AdminDashboard() {
                           <p className="text-sm text-gray-200 font-semibold">{leader?.full_name}</p>
                           <p className="text-xs text-gray-500">{leader?.email}</p>
                           <p className="text-xs text-gray-500 font-mono mt-0.5">{leader?.srn}</p>
+                          {needsCycle(leader?.srn) && leader?.cycle && (
+                            <p className="text-[10px] text-cyan-300 font-mono uppercase mt-0.5">Cycle: {leader.cycle}</p>
+                          )}
+                          <div className="mt-3 space-y-2">
+                            {team.candidates
+                              .filter((c: any) => !c.is_leader)
+                              .map((member: any) => (
+                                <div key={member.id} className="text-xs text-gray-400">
+                                  <p className="text-gray-300">{member.full_name}</p>
+                                  <p className="font-mono text-gray-500">{member.srn}</p>
+                                  {needsCycle(member.srn) && member.cycle && (
+                                    <p className="text-[10px] text-cyan-300 font-mono uppercase">Cycle: {member.cycle}</p>
+                                  )}
+                                </div>
+                              ))}
+                          </div>
                         </td>
                         <td className="p-4 text-center">
                           <button 
