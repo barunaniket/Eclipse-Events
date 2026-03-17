@@ -97,7 +97,7 @@ export const sendPendingRegistrationEmail = async (
 
   try {
     await sendEmail(email, `Registration Pending Verification - ${teamName}`, html);
-    console.log(`Pending email sent to leader: ${email}`);
+    console.log(`Pending email sent to: ${email}`);
   } catch (error) {
     console.error(`Failed to send pending email to ${email}:`, error);
     throw error;
@@ -120,20 +120,20 @@ export const sendCredentialEmail = async (
   const formattedTeamNumber = teamNumber.toString().padStart(3, '0');
 
   const html = `
-    <div style="font-family: Arial, sans-serif; max-w: 600px; margin: 0 auto; background-color: #050505; color: #ffffff; padding: 30px; border-radius: 12px; border: 1px solid #333;">
-      <h2 style="color: #06b6d4; text-align: center; margin-bottom: 20px;">Welcome to Eclipse!</h2>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050505; color: #ffffff; padding: 30px; border-radius: 12px; border: 1px solid #333;">
+      <h2 style="color: #06b6d4; text-align: center; margin-bottom: 20px;">You're In — Eclipse 2026!</h2>
       <p style="color: #d1d5db; font-size: 16px;">Hi ${safeName},</p>
-      <p style="color: #d1d5db; font-size: 16px;">Your registration has been <strong>approved</strong>! You are officially registered for Eclipse as a <strong>${safeRole}</strong> of team <strong>${safeTeamName}</strong>.</p>
+      <p style="color: #d1d5db; font-size: 16px;">Your registration has been <strong>approved</strong>. You are officially registered for Eclipse as a <strong>${safeRole}</strong> of team <strong>${safeTeamName}</strong>.</p>
 
       <div style="background-color: #121212; border-left: 4px solid #06b6d4; padding: 15px; margin: 25px 0;">
-        <p style="margin: 0 0 10px 0; color: #9ca3af; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your Participant Credentials</p>
+        <p style="margin: 0 0 10px 0; color: #9ca3af; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Participant Hub — Login Details</p>
         <p style="margin: 5px 0; font-size: 16px;"><strong>Team Number:</strong> <span style="color: #06b6d4; font-weight: bold;">#${formattedTeamNumber}</span></p>
-        <p style="margin: 5px 0; font-size: 16px;"><strong>Email:</strong> ${safeEmail}</p>
-        <p style="margin: 5px 0; font-size: 16px;"><strong>Password:</strong> <span style="color: #fbbf24; font-family: monospace; font-size: 18px;">${safePassword}</span></p>
+        <p style="margin: 5px 0; font-size: 16px;"><strong>Login ID:</strong> ${safeEmail}</p>
+        <p style="margin: 5px 0; font-size: 16px;"><strong>Access code:</strong> <span style="color: #fbbf24; font-family: monospace; font-size: 18px;">${safePassword}</span></p>
       </div>
 
-      <p style="color: #ef4444; font-size: 14px; font-weight: bold;">&#9888;&#65039; Keep this password safe. You will need it to log into the Participant Hub and generate your digital passes on the day of the event.</p>
-      <p style="color: #d1d5db; font-size: 14px; font-weight: bold;">If your phone scanner fails, please provide your Team Number (#${formattedTeamNumber}) to the volunteer.</p>
+      <p style="color: #d1d5db; font-size: 14px;">Save this access code — you will need it to sign into the Participant Hub and generate your digital pass on the day of the event.</p>
+      <p style="color: #d1d5db; font-size: 14px; font-weight: bold;">If your phone scanner fails, give your Team Number (#${formattedTeamNumber}) to any volunteer at the venue.</p>
 
       <p style="color: #9ca3af; font-size: 14px; margin-top: 30px; text-align: center;">See you at the event!</p>
       <p style="color: #6b7280; font-size: 12px; text-align: center;">CodeChef PESU ECC Team</p>
@@ -141,7 +141,7 @@ export const sendCredentialEmail = async (
   `;
 
   try {
-    await sendEmail(email, `Your Eclipse Participant Credentials - ${safeTeamName}`, html);
+    await sendEmail(email, `Eclipse 2026 - Registration Confirmed, ${safeTeamName}`, html);
     console.log(`Credentials emailed to ${email}`);
   } catch (error) {
     console.error(`Failed to send email to ${email}:`, error);

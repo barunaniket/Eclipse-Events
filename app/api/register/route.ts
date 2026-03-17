@@ -166,26 +166,36 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. Send "Pending Approval" Email to the Team Leader (capture errors for debugging)
-    const leader = members[0];
-    let emailStatus: 'sent' | 'failed' = 'sent';
-    let emailError: string | null = null;
-    try {
-      await sendPendingRegistrationEmail(leader.name, leader.email, teamName);
-    } catch (err: any) {
-      emailStatus = 'failed';
-      emailError = err?.message || 'Unknown email error';
-      console.warn("Failed to send pending email to leader, but registration succeeded.", err);
+    // 6. Send "Pending Approval" Email to ALL team members
+    const emailResults = await Promise.allSettled(
+      members.map((member: any) =>
+        sendPendingRegistrationEmail(member.name, member.email, teamName)
+      )
+    );
+
+    const emailFailures = emailResults
+      .map((result, idx) => {
+        if (result.status === 'rejected') {
+          const reason = (result.reason && (result.reason.message || String(result.reason))) || 'Unknown error';
+          return { email: members[idx].email, reason };
+        }
+        return null;
+      })
+      .filter(Boolean) as Array<{ email: string; reason: string }>;
+
+    if (emailFailures.length > 0) {
+      console.warn(`${emailFailures.length} pending emails failed to send for team ${teamName}.`, emailFailures);
     }
 
     // 7. Return Success without credentials
-    return json({ 
-      success: true, 
-      teamNumber, 
+    return json({
+      success: true,
+      teamNumber,
       teamName,
-      status: 'pending', // Tell the frontend to show the pending screen
-      emailStatus,
-      emailError
+      status: 'pending',
+      emailsSent: members.length - emailFailures.length,
+      emailsFailed: emailFailures.length,
+      emailFailures
     });
 
   } catch (error: any) {
