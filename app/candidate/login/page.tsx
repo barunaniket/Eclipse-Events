@@ -37,76 +37,80 @@ export default function CandidateLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center p-4 selection:bg-cyan-500/30">
-      
-      {/* Branding Header */}
-      <div className="flex flex-col items-center mb-8">
-        <div className="bg-cyan-900/30 p-4 rounded-2xl border border-cyan-500/20 mb-4 shadow-[0_0_30px_rgba(6,182,212,0.15)]">
-          <Users className="text-cyan-400" size={32} />
+    <div className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center p-4 lg:p-10 selection:bg-cyan-500/30">
+      <div className="w-full max-w-4xl lg:max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+        {/* Branding Header */}
+        <div className="flex flex-col items-center lg:items-start text-center lg:text-left">
+          <div className="bg-cyan-900/30 p-4 rounded-2xl border border-cyan-500/20 mb-4 shadow-[0_0_30px_rgba(6,182,212,0.15)]">
+            <Users className="text-cyan-400" size={32} />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-black text-white tracking-wide">PARTICIPANT HUB</h1>
+          <p className="text-sm text-cyan-400 font-mono tracking-widest uppercase mt-1">Eclipse Event</p>
+          <p className="text-gray-400 text-sm mt-4 max-w-sm">
+            Log in to view your QR passes and team status. On desktop, your access panel stays fixed on the right.
+          </p>
         </div>
-        <h1 className="text-2xl font-black text-white tracking-wide">PARTICIPANT HUB</h1>
-        <p className="text-sm text-cyan-400 font-mono tracking-widest uppercase mt-1">Eclipse Event</p>
-      </div>
 
-      {/* Login Card */}
-      <div className="w-full max-w-sm bg-[#121212] border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-        
-        {/* Subtle Top Accent */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-cyan-500/50"></div>
-
-        <p className="text-gray-400 text-sm text-center mb-6">
-          Enter the credentials generated during registration to access your digital pass.
-        </p>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-xl mb-6 text-sm flex items-start gap-2">
-            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-            <p>{error}</p>
-          </div>
-        )}
-
-        <form onSubmit={handleCandidateLogin} className="space-y-4">
+        {/* Login Card */}
+        <div className="w-full max-w-sm lg:max-w-md bg-[#121212] border border-white/5 rounded-3xl p-6 lg:p-8 shadow-2xl relative overflow-hidden mx-auto lg:mx-0">
           
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-1">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input 
-                type="email" 
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="leader@example.com"
-                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:border-cyan-500 focus:outline-none transition-colors"
-              />
+          {/* Subtle Top Accent */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-cyan-500/50"></div>
+
+          <p className="text-gray-400 text-sm text-center mb-6">
+            Enter the credentials generated during registration to access your digital pass.
+          </p>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-xl mb-6 text-sm flex items-start gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <p>{error}</p>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-1">Auto-Generated Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input 
-                type="password" 
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Eclipse-XXXXXX!"
-                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:border-cyan-500 focus:outline-none transition-colors font-mono tracking-wider"
-              />
+          <form onSubmit={handleCandidateLogin} className="space-y-4">
+            
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-1">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                <input 
+                  type="email" 
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="leader@example.com"
+                  className="w-full bg-black border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:border-cyan-500 focus:outline-none transition-colors"
+                />
+              </div>
             </div>
-          </div>
 
-          <button 
-            type="submit" 
-            disabled={isLoading || !email || !password}
-            className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed py-3.5 rounded-xl font-bold uppercase tracking-wider flex justify-center items-center gap-2 transition-all mt-6 shadow-lg text-white"
-          >
-            {isLoading ? <Loader2 className="animate-spin" size={20} /> : "Access Pass"}
-            {!isLoading && <ArrowRight size={18} />}
-          </button>
-        </form>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-1">Auto-Generated Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                <input 
+                  type="password" 
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Eclipse-XXXXXX!"
+                  className="w-full bg-black border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white focus:border-cyan-500 focus:outline-none transition-colors font-mono tracking-wider"
+                />
+              </div>
+            </div>
 
+            <button 
+              type="submit" 
+              disabled={isLoading || !email || !password}
+              className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed py-3.5 rounded-xl font-bold uppercase tracking-wider flex justify-center items-center gap-2 transition-all mt-6 shadow-lg text-white"
+            >
+              {isLoading ? <Loader2 className="animate-spin" size={20} /> : "Access Pass"}
+              {!isLoading && <ArrowRight size={18} />}
+            </button>
+          </form>
+
+        </div>
       </div>
 
       <div className="mt-8 text-center">

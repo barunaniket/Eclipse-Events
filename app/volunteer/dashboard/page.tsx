@@ -356,89 +356,103 @@ export default function VolunteerDashboard() {
         </button>
       </nav>
 
-      <main className="p-4 pb-32 max-w-3xl mx-auto">
-        
-        <div className="bg-white/5 border border-white/10 rounded-xl p-2 flex gap-2 mb-6">
-          <button 
-            onClick={() => setActiveMode("is_present")}
-            className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "is_present" ? "bg-cyan-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
-          >
-            <UserCheck size={18} /> Check-In
-          </button>
-          <button 
-            onClick={() => setActiveMode("lunch_received")}
-            className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "lunch_received" ? "bg-green-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
-          >
-            <Utensils size={18} /> Lunch
-          </button>
-          <button 
-            onClick={() => setActiveMode("snacks_received")}
-            className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "snacks_received" ? "bg-yellow-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
-          >
-            <Coffee size={18} /> Snacks
-          </button>
-        </div>
+      <main className="p-4 lg:p-8 pb-32 lg:pb-10 max-w-6xl mx-auto">
+        <div className="w-full flex flex-col gap-6 lg:grid lg:grid-cols-[320px_1fr] lg:gap-8">
+          <div className="flex flex-col gap-6">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-2 flex gap-2">
+              <button 
+                onClick={() => setActiveMode("is_present")}
+                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "is_present" ? "bg-cyan-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
+              >
+                <UserCheck size={18} /> Check-In
+              </button>
+              <button 
+                onClick={() => setActiveMode("lunch_received")}
+                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "lunch_received" ? "bg-green-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
+              >
+                <Utensils size={18} /> Lunch
+              </button>
+              <button 
+                onClick={() => setActiveMode("snacks_received")}
+                className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex flex-col items-center gap-1 transition-all ${activeMode === "snacks_received" ? "bg-yellow-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
+              >
+                <Coffee size={18} /> Snacks
+              </button>
+            </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
-            <span className="text-2xl font-bold text-cyan-400">{stats.checkedIn}</span>
-            <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Checked In</span>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
-            <span className="text-2xl font-bold text-green-400">{stats.lunches}</span>
-            <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Lunch Given</span>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
-            <span className="text-2xl font-bold text-yellow-400">{stats.snacks}</span>
-            <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Snacks Given</span>
-          </div>
-        </div>
-
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search by Team No. or Name..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-base focus:border-cyan-500 focus:outline-none transition-colors"
-          />
-        </div>
-
-        <div className="space-y-3">
-          {filteredTeams.length === 0 ? (
-             <p className="text-center text-gray-500 py-8 text-sm">No teams found.</p>
-          ) : (
-            filteredTeams.map((team) => (
-              <div key={team.id} className="bg-white/5 border border-white/10 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-gray-200">{team.name}</h3>
-                    <p className="text-xs text-cyan-400 truncate max-w-[200px]">{team.track}</p>
-                  </div>
-                  <span className="text-xs font-mono font-bold bg-cyan-900/40 px-2 py-1 rounded text-cyan-300 border border-cyan-500/30">
-                    #{team.teamNumber.toString().padStart(3, '0')}
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-3 text-xs font-medium mt-3 pt-3 border-t border-white/5">
-                  <span className={`flex items-center gap-1 ${team.checkedIn === team.size ? "text-cyan-400" : team.checkedIn > 0 ? "text-cyan-700" : "text-gray-600"}`}>
-                    <UserCheck size={14} /> {team.checkedIn}/{team.size}
-                  </span>
-                  <span className={`flex items-center gap-1 ${team.lunch === team.size ? "text-green-400" : team.lunch > 0 ? "text-green-700" : "text-gray-600"}`}>
-                    <Utensils size={14} /> {team.lunch}/{team.size}
-                  </span>
-                  <span className={`flex items-center gap-1 ${team.snacks === team.size ? "text-yellow-400" : team.snacks > 0 ? "text-yellow-700" : "text-gray-600"}`}>
-                    <Coffee size={14} /> {team.snacks}/{team.size}
-                  </span>
-                </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span className="text-2xl font-bold text-cyan-400">{stats.checkedIn}</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Checked In</span>
               </div>
-            ))
-          )}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span className="text-2xl font-bold text-green-400">{stats.lunches}</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Lunch Given</span>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span className="text-2xl font-bold text-yellow-400">{stats.snacks}</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Snacks Given</span>
+              </div>
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search by Team No. or Name..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-base focus:border-cyan-500 focus:outline-none transition-colors"
+              />
+            </div>
+
+            <button 
+              onClick={() => { setIsScanning(true); setScanState("idle"); }}
+              className={`hidden lg:flex w-full text-white font-bold py-4 rounded-2xl items-center justify-center gap-2 transition-all active:scale-95 shadow-lg
+                ${activeMode === "is_present" ? "bg-cyan-600 hover:bg-cyan-500 shadow-cyan-600/40" : 
+                  activeMode === "lunch_received" ? "bg-green-600 hover:bg-green-500 shadow-green-600/40" : 
+                  "bg-yellow-600 hover:bg-yellow-500 shadow-yellow-600/40"}`}
+            >
+              <ScanLine size={24} />
+              SCAN FOR {activeMode.replace('_received', '').replace('is_', '').toUpperCase()}
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {filteredTeams.length === 0 ? (
+               <p className="text-center text-gray-500 py-8 text-sm">No teams found.</p>
+            ) : (
+              filteredTeams.map((team) => (
+                <div key={team.id} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-bold text-gray-200">{team.name}</h3>
+                      <p className="text-xs text-cyan-400 truncate max-w-[240px]">{team.track}</p>
+                    </div>
+                    <span className="text-xs font-mono font-bold bg-cyan-900/40 px-2 py-1 rounded text-cyan-300 border border-cyan-500/30">
+                      #{team.teamNumber.toString().padStart(3, '0')}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 text-xs font-medium mt-3 pt-3 border-t border-white/5">
+                    <span className={`flex items-center gap-1 ${team.checkedIn === team.size ? "text-cyan-400" : team.checkedIn > 0 ? "text-cyan-700" : "text-gray-600"}`}>
+                      <UserCheck size={14} /> {team.checkedIn}/{team.size}
+                    </span>
+                    <span className={`flex items-center gap-1 ${team.lunch === team.size ? "text-green-400" : team.lunch > 0 ? "text-green-700" : "text-gray-600"}`}>
+                      <Utensils size={14} /> {team.lunch}/{team.size}
+                    </span>
+                    <span className={`flex items-center gap-1 ${team.snacks === team.size ? "text-yellow-400" : team.snacks > 0 ? "text-yellow-700" : "text-gray-600"}`}>
+                      <Coffee size={14} /> {team.snacks}/{team.size}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </main>
 
-      <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-40">
+      <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-40 lg:hidden">
         <button 
           onClick={() => { setIsScanning(true); setScanState("idle"); }}
           className={`w-full max-w-sm text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg

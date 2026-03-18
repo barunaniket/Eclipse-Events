@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 // Added Clock to the imports here!
-import { ShieldAlert, Loader2, LogOut, CheckCircle2, XCircle, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, Radio, RadioTower } from "lucide-react";
+import { ShieldAlert, Loader2, LogOut, CheckCircle2, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, Radio, RadioTower, Download, Trash2, FolderX, ChevronDown, ChevronUp } from "lucide-react";
 
 type TeamStatus = 'pending' | 'approved';
 
@@ -19,6 +19,10 @@ export default function AdminDashboard() {
 
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isClearingDb, setIsClearingDb] = useState(false);
+  const [isClearingReceipts, setIsClearingReceipts] = useState(false);
 
   const [eventIsLive, setEventIsLive] = useState<boolean | null>(null);
   const [isTogglingEvent, setIsTogglingEvent] = useState(false);
@@ -59,23 +63,18 @@ export default function AdminDashboard() {
   const fetchTeams = async () => {
     setIsLoadingData(true);
     try {
-      const { data, error } = await supabase
-        .from('teams')
-        .select(`
-          id, 
-          team_name,
-          team_number,
-          team_size,
-          payment_status,
-          receipt_url,
-          tracks (title),
-          candidates (id, full_name, email, srn, cycle, is_leader)
-        `)
-        // Swapped created_at for team_number to prevent schema errors
-        .order('team_number', { ascending: false });
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/teams', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token ?? ''}`
+        }
+      });
 
-      if (error) throw error;
-      setTeams(data || []);
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || "Failed to fetch teams.");
+
+      setTeams(payload.teams || []);
     } catch (err: any) {
       console.error("Failed to fetch teams:", err.message || err);
       // Removed the alert here so it doesn't spam you during dev
@@ -176,6 +175,81 @@ export default function AdminDashboard() {
     window.location.href = '/';
   };
 
+  const handleExportVerified = async () => {
+    setIsExporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/export-verified', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token ?? ''}` }
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Failed to export verified teams.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `verified-teams-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error.message || "Failed to export verified teams.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleClearDatabase = async () => {
+    if (!confirm("This will permanently clear teams, candidates, and payment receipts. Continue?")) return;
+    const typed = prompt('Type CLEAR to confirm database reset:');
+    if (typed !== 'CLEAR') return;
+
+    setIsClearingDb(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/clear-db', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token ?? ''}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to clear database.");
+      alert(`Database cleared. Auth users deleted: ${data.authUsersDeleted ?? 0}.`);
+      fetchTeams();
+    } catch (error: any) {
+      alert(error.message || "Failed to clear database.");
+    } finally {
+      setIsClearingDb(false);
+    }
+  };
+
+  const handleClearReceipts = async () => {
+    if (!confirm("This will permanently delete all files in the receipts bucket. Continue?")) return;
+    const typed = prompt('Type CLEAR to confirm storage wipe:');
+    if (typed !== 'CLEAR') return;
+
+    setIsClearingReceipts(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/clear-receipts', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token ?? ''}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to clear receipts bucket.");
+      alert(`Receipts bucket cleared. Files deleted: ${data.deleted ?? 0}.`);
+    } catch (error: any) {
+      alert(error.message || "Failed to clear receipts bucket.");
+    } finally {
+      setIsClearingReceipts(false);
+    }
+  };
+
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-cyan-500">
@@ -233,10 +307,10 @@ export default function AdminDashboard() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto p-6">
+      <main className="max-w-7xl mx-auto p-6 lg:p-8">
         
-        <div className="flex flex-col md:flex-row gap-6 mb-8 items-end">
-          <div className="flex bg-white/5 p-1.5 rounded-xl border border-white/10 w-full md:w-auto">
+        <div className="flex flex-col lg:grid lg:grid-cols-[auto_1fr] gap-6 mb-6 items-end">
+          <div className="flex bg-white/5 p-1.5 rounded-xl border border-white/10 w-full lg:w-auto">
             <button 
               onClick={() => setActiveTab('pending')}
               className={`flex-1 md:w-48 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'pending' ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-500/30' : 'text-gray-500 hover:text-gray-300'}`}
@@ -251,122 +325,204 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          <div className="relative flex-grow">
+          <div className="relative w-full lg:justify-self-end">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
             <input 
               type="text" 
               placeholder="Search teams by name..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
+              className="w-full lg:w-[360px] bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-sm focus:border-cyan-500 focus:outline-none transition-colors"
             />
           </div>
         </div>
 
-        <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#121212] border-b border-white/10 text-xs uppercase tracking-widest text-gray-400">
-                  <th className="p-4 font-bold">Team Name</th>
-                  <th className="p-4 font-bold">Track</th>
-                  <th className="p-4 font-bold">Leader Details</th>
-                  <th className="p-4 font-bold text-center">Receipt</th>
-                  <th className="p-4 font-bold text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {isLoadingData ? (
-                  <tr>
-                    <td colSpan={5} className="p-12 text-center text-cyan-500">
-                      <Loader2 className="animate-spin mx-auto mb-4" size={32} />
-                      <p className="font-mono text-sm uppercase tracking-widest">Loading Records...</p>
-                    </td>
-                  </tr>
-                ) : filteredTeams.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-12 text-center text-gray-500 text-sm">
-                      No {activeTab} teams found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredTeams.map((team) => {
-                    const leader = team.candidates.find((c: any) => c.is_leader) || team.candidates[0];
+        <div className="flex flex-wrap items-center gap-3 mb-8">
+          <button
+            onClick={handleExportVerified}
+            disabled={isExporting}
+            className="flex items-center gap-2 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            Export Verified Teams
+          </button>
+          <button
+            onClick={handleClearDatabase}
+            disabled={isClearingDb}
+            className="flex items-center gap-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+          >
+            {isClearingDb ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            Clear Database
+          </button>
+          <button
+            onClick={handleClearReceipts}
+            disabled={isClearingReceipts}
+            className="flex items-center gap-2 bg-yellow-600/20 hover:bg-yellow-600 text-yellow-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+          >
+            {isClearingReceipts ? <Loader2 size={16} className="animate-spin" /> : <FolderX size={16} />}
+            Clear Receipts Bucket
+          </button>
+        </div>
 
-                    return (
-                      <tr key={team.id} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="p-4">
-                          <p className="font-bold text-white text-base">{team.team_name}</p>
-                          <p className="text-xs text-gray-500 font-mono mt-1 flex items-center gap-1">
-                            <Users size={12} /> {team.team_size} Members
-                          </p>
-                        </td>
-                        <td className="p-4">
-                          <span className="bg-cyan-900/30 text-cyan-400 border border-cyan-500/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                            {team.tracks?.title || "Unknown"}
+        <div className="space-y-4">
+          {isLoadingData ? (
+            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-12 text-center text-cyan-500">
+              <Loader2 className="animate-spin mx-auto mb-4" size={32} />
+              <p className="font-mono text-sm uppercase tracking-widest">Loading Records...</p>
+            </div>
+          ) : filteredTeams.length === 0 ? (
+            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-12 text-center text-gray-500 text-sm">
+              No {activeTab} teams found.
+            </div>
+          ) : (
+            filteredTeams.map((team) => {
+              const receiptMap = new Map<number, string>();
+              (team.payment_receipts ?? []).forEach((r: any) => {
+                if (typeof r.member_index === "number") {
+                  receiptMap.set(r.member_index, r.receipt_url);
+                }
+              });
+
+              if (team.receipt_url && !receiptMap.has(1)) {
+                receiptMap.set(1, team.receipt_url);
+              }
+
+              const candidates = (team.candidates ?? []).slice().sort((a: any, b: any) => {
+                const aIndex = a.member_index ?? 0;
+                const bIndex = b.member_index ?? 0;
+                return aIndex - bIndex;
+              });
+              const leader = candidates.find((c: any) => c.is_leader) || candidates[0];
+              const isExpanded = expandedTeams.has(team.id);
+
+              return (
+                <div key={team.id} className="bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                  <div className="p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                        <Users size={20} className="text-cyan-400" />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h3 className="text-lg font-bold text-white">{team.team_name}</h3>
+                          <span className={`text-[10px] uppercase font-mono tracking-widest px-2 py-1 rounded-full border ${team.payment_status === 'approved' ? 'bg-green-600/20 text-green-400 border-green-500/30' : 'bg-yellow-600/20 text-yellow-400 border-yellow-500/30'}`}>
+                            {team.payment_status}
                           </span>
-                        </td>
-                        <td className="p-4">
-                          <p className="text-sm text-gray-200 font-semibold">{leader?.full_name}</p>
-                          <p className="text-xs text-gray-500">{leader?.email}</p>
-                          <p className="text-xs text-gray-500 font-mono mt-0.5">{leader?.srn}</p>
-                          {needsCycle(leader?.srn) && leader?.cycle && (
-                            <p className="text-[10px] text-cyan-300 font-mono uppercase mt-0.5">Cycle: {leader.cycle}</p>
-                          )}
-                          <div className="mt-3 space-y-2">
-                            {team.candidates
-                              .filter((c: any) => !c.is_leader)
-                              .map((member: any) => (
-                                <div key={member.id} className="text-xs text-gray-400">
-                                  <p className="text-gray-300">{member.full_name}</p>
-                                  <p className="font-mono text-gray-500">{member.srn}</p>
-                                  {needsCycle(member.srn) && member.cycle && (
-                                    <p className="text-[10px] text-cyan-300 font-mono uppercase">Cycle: {member.cycle}</p>
-                                  )}
-                                </div>
-                              ))}
-                          </div>
-                        </td>
-                        <td className="p-4 text-center">
-                          <button 
-                            onClick={() => setViewingReceipt(team.receipt_url)}
-                            className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 p-2 rounded-lg transition-colors inline-block"
-                            title="View Receipt"
-                          >
-                            <Eye size={20} />
-                          </button>
-                        </td>
-                        <td className="p-4 text-center">
-                          {activeTab === 'pending' ? (
-                            <div className="flex items-center justify-center gap-2">
-                              <button 
-                                onClick={() => handleApprove(team.id)}
-                                disabled={processingId === team.id}
-                                className="bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
-                              >
-                                {processingId === team.id ? <Loader2 size={16} className="animate-spin" /> : "Approve"}
-                              </button>
-                              <button 
-                                onClick={() => handleReject(team.id)}
-                                disabled={processingId === team.id}
-                                className="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-gray-500 text-xs font-mono uppercase tracking-widest flex items-center justify-center gap-1">
-                              <CheckCircle2 size={14} className="text-green-500" /> Verified
+                          {team.team_number && (
+                            <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-1 rounded-full border border-white/10 text-gray-400 bg-white/5">
+                              Team #{team.team_number}
                             </span>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-400 flex flex-wrap gap-4">
+                          <span className="flex items-center gap-1"><FileText size={14} className="text-cyan-500" /> {team.tracks?.title || "Unknown Track"}</span>
+                          <span className="flex items-center gap-1"><Users size={14} className="text-purple-400" /> {team.team_size} Members</span>
+                        </div>
+                        {leader && (
+                          <div className="mt-3 text-xs text-gray-400">
+                            <p className="text-gray-200 font-semibold">{leader.full_name}</p>
+                            <p>{leader.email}</p>
+                            <p className="font-mono">{leader.srn}</p>
+                            {needsCycle(leader?.srn) && leader?.cycle && (
+                              <p className="text-[10px] text-cyan-300 font-mono uppercase">Cycle: {leader.cycle}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
+                      {activeTab === 'pending' ? (
+                        <>
+                          <button 
+                            onClick={() => handleApprove(team.id)}
+                            disabled={processingId === team.id}
+                            className="bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            {processingId === team.id ? <Loader2 size={16} className="animate-spin" /> : "Approve"}
+                          </button>
+                          <button 
+                            onClick={() => handleReject(team.id)}
+                            disabled={processingId === team.id}
+                            className="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-gray-500 text-xs font-mono uppercase tracking-widest flex items-center gap-1">
+                          <CheckCircle2 size={14} className="text-green-500" /> Verified
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          setExpandedTeams((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(team.id)) next.delete(team.id);
+                            else next.add(team.id);
+                            return next;
+                          });
+                        }}
+                        className="bg-white/10 hover:bg-white/20 text-gray-200 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2"
+                      >
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        {isExpanded ? "Hide Candidates" : "View Candidates"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-white/10 px-5 py-4">
+                      <div className="grid grid-cols-1 gap-3">
+                        {candidates.map((candidate: any) => {
+                          const receiptUrl = receiptMap.get(candidate.member_index);
+                          return (
+                            <div key={candidate.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                              <div className="text-sm text-gray-300">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-white font-semibold">{candidate.full_name}</p>
+                                  {candidate.is_leader && (
+                                    <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-600/20 text-cyan-300">
+                                      Leader
+                                    </span>
+                                  )}
+                                  {candidate.member_index && (
+                                    <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 rounded-full border border-white/10 bg-white/5 text-gray-400">
+                                      Member {candidate.member_index}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500">{candidate.email}</p>
+                                {candidate.phone && <p className="text-xs text-gray-500">{candidate.phone}</p>}
+                                <p className="text-xs text-gray-500 font-mono">{candidate.srn}</p>
+                                {needsCycle(candidate?.srn) && candidate?.cycle && (
+                                  <p className="text-[10px] text-cyan-300 font-mono uppercase">Cycle: {candidate.cycle}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {receiptUrl ? (
+                                  <button
+                                    onClick={() => setViewingReceipt(receiptUrl)}
+                                    className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+                                    title={`View Receipt - Member ${candidate.member_index ?? ''}`}
+                                  >
+                                    <Eye size={16} />
+                                    View Receipt
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-500 font-mono uppercase tracking-widest">No Receipt</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </main>
 

@@ -1,7 +1,7 @@
 // components/registration/DynamicRegistrationForm.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { User, Mail, Phone, Upload, CheckCircle2, ChevronRight, Hash, Users, FileText, Loader2, AlertTriangle, Flag, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase"; 
 import { ProblemModal } from "./ProblemModal"; 
@@ -22,11 +22,13 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
   const [step, setStep] = useState(1);
   const [teamSize, setTeamSize] = useState(2);
   const [selectedProblem, setSelectedProblem] = useState("");
-  const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [paymentFiles, setPaymentFiles] = useState<(File | null)[]>([]);
   const [teamName, setTeamName] = useState("");
 
+  const hasInitialTracks = Array.isArray(initialTracks) && initialTracks.length > 0;
   const [tracks, setTracks] = useState<Track[]>(initialTracks ?? []);
-  const [isLoadingTracks, setIsLoadingTracks] = useState(!initialTracks);
+  const [isLoadingTracks, setIsLoadingTracks] = useState(!hasInitialTracks);
+  const [trackLoadError, setTrackLoadError] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -49,35 +51,37 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
 
   const needsCycle = (srn: string) => srn.trim().toUpperCase().startsWith("PES2UG25");
 
+  const fetchLiveTracks = useCallback(async () => {
+    setIsLoadingTracks(true);
+    setTrackLoadError("");
+    try {
+      const { data, error } = await supabase
+        .from('tracks')
+        .select('*, teams(count)')
+        .order('id', { ascending: true });
+
+      if (error) throw error;
+
+      setTracks((data ?? []).map((track: any) => ({
+        id: track.id,
+        title: track.title,
+        description: track.description,
+        maxTeams: track.max_teams,
+        registeredTeams: track.teams[0]?.count || 0,
+      })));
+    } catch (err: any) {
+      console.error("Failed to fetch live tracks:", err);
+      setTrackLoadError(err?.message || "Failed to fetch live tracks.");
+    } finally {
+      setIsLoadingTracks(false);
+    }
+  }, []);
+
   useEffect(() => {
     // Skip client-side fetch if tracks were already provided server-side
-    if (initialTracks) return;
-
-    const fetchLiveTracks = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('tracks')
-          .select('*, teams(count)')
-          .order('id', { ascending: true });
-
-        if (error) throw error;
-
-        setTracks(data.map((track: any) => ({
-          id: track.id,
-          title: track.title,
-          description: track.description,
-          maxTeams: track.max_teams,
-          registeredTeams: track.teams[0]?.count || 0,
-        })));
-      } catch (err) {
-        console.error("Failed to fetch live tracks:", err);
-      } finally {
-        setIsLoadingTracks(false);
-      }
-    };
-
+    if (hasInitialTracks) return;
     fetchLiveTracks();
-  }, []);
+  }, [fetchLiveTracks, hasInitialTracks]);
 
   const handleMemberChange = (index: number, field: string, value: string) => {
     const updatedMembers = [...members];
@@ -89,18 +93,36 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
     setMembers(updatedMembers);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    setPaymentFiles((prev) => {
+      const next = Array(teamSize).fill(null);
+      for (let i = 0; i < Math.min(prev.length, teamSize); i += 1) {
+        next[i] = prev[i];
+      }
+      return next;
+    });
+  }, [teamSize]);
+
+  const handleFileChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     setSubmitError(""); 
     const file = e.target.files?.[0];
     
     if (!file) {
-      setPaymentFile(null);
+      setPaymentFiles((prev) => {
+        const next = [...prev];
+        next[index] = null;
+        return next;
+      });
       return;
     }
 
     if (file.size > 1048576) {
       setSubmitError("File is too large. Maximum allowed size is 1MB.");
-      setPaymentFile(null);
+      setPaymentFiles((prev) => {
+        const next = [...prev];
+        next[index] = null;
+        return next;
+      });
       e.target.value = ''; 
       return;
     }
@@ -108,12 +130,20 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
     const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
     if (!validTypes.includes(file.type)) {
       setSubmitError("Invalid file format. Only JPG, PNG, and PDF are allowed.");
-      setPaymentFile(null);
+      setPaymentFiles((prev) => {
+        const next = [...prev];
+        next[index] = null;
+        return next;
+      });
       e.target.value = ''; 
       return;
     }
 
-    setPaymentFile(file);
+    setPaymentFiles((prev) => {
+      const next = [...prev];
+      next[index] = file;
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,23 +154,29 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
 
     try {
       if (!teamName.trim()) throw new Error("Team Name is required.");
-      if (!paymentFile) throw new Error("Payment receipt is missing.");
+      if (paymentFiles.length !== teamSize || paymentFiles.some((f) => !f)) {
+        throw new Error("All payment receipts are required.");
+      }
 
-      const fileExt = paymentFile.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `public/${fileName}`;
+      const receiptUrls: string[] = [];
+      for (const file of paymentFiles) {
+        const safeFile = file as File;
+        const fileExt = safeFile.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `public/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('receipts')
-        .upload(filePath, paymentFile);
+        const { error: uploadError } = await supabase.storage
+          .from('receipts')
+          .upload(filePath, safeFile);
 
-      if (uploadError) throw new Error("Failed to upload receipt. Please try again.");
+        if (uploadError) throw new Error("Failed to upload receipt. Please try again.");
 
-      const { data: publicUrlData } = supabase.storage
-        .from('receipts')
-        .getPublicUrl(filePath);
-      
-      const receiptUrl = publicUrlData.publicUrl;
+        const { data: publicUrlData } = supabase.storage
+          .from('receipts')
+          .getPublicUrl(filePath);
+        
+        receiptUrls.push(publicUrlData.publicUrl);
+      }
 
       const activeMembers = members.slice(0, teamSize);
       
@@ -148,7 +184,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
         teamName: teamName.trim(),
         trackId: selectedProblem,
         teamSize,
-        receiptUrl,
+        receiptUrls,
         members: activeMembers
       };
 
@@ -266,6 +302,20 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                   <Loader2 className="animate-spin mb-4" size={40} />
                   <p className="text-sm tracking-widest uppercase font-mono text-gray-400">Syncing live capacities...</p>
                 </div>
+              ) : tracks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 text-center text-gray-400 gap-3">
+                  <p className="text-sm tracking-widest uppercase font-mono">No tracks available</p>
+                  {trackLoadError && (
+                    <p className="text-xs text-red-400">{trackLoadError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={fetchLiveTracks}
+                    className="px-4 py-2 rounded-md text-xs font-bold uppercase tracking-wider bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (
                 tracks.map((track) => {
                   const isFull = track.registeredTeams >= track.maxTeams;
@@ -284,13 +334,16 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                         <h4 className={`text-lg font-bold ${isFull && !isSelected ? "text-gray-400" : "text-white"}`}>
                           {track.title}
                         </h4>
-                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-bold ${
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-mono font-bold leading-none ${
                           isFull ? "bg-red-500/20 text-red-400" : 
                           track.registeredTeams >= 8 ? "bg-yellow-500/20 text-yellow-400" : 
                           "bg-green-500/20 text-green-400"
                         }`}>
                           <Users size={14} />
-                          {track.registeredTeams} / {track.maxTeams} Teams
+                          <span className="flex flex-col items-center leading-none">
+                            <span className="text-[11px] tabular-nums">{track.registeredTeams}/{track.maxTeams}</span>
+                            <span className="text-[9px] uppercase tracking-widest">Teams</span>
+                          </span>
                         </div>
                       </div>
                       
@@ -465,40 +518,50 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">3.</span> <span>Click on <strong>Miscellaneous Payments</strong>.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">4.</span> <span>Select the event <strong>Eclipse</strong> from the dropdown.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">5.</span> <span>Complete the transaction and <strong>download the receipt</strong>.</span></li>
-                  <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">6.</span> <span>Upload the downloaded payment receipt here.</span></li>
+                  <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">6.</span> <span>Upload the downloaded payment receipts for each member.</span></li>
                 </ol>
               </div>
 
-              <div className="border-2 border-dashed border-gray-600 hover:border-cyan-500/50 bg-black/40 rounded-xl p-6 flex flex-col items-center justify-center transition-colors cursor-pointer relative min-h-[250px]">
-                <input 
-                  type="file" 
-                  accept=".pdf,image/png,image/jpeg,image/jpg" 
-                  onChange={handleFileChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-0" 
-                  required
-                  disabled={isSubmitting} 
-                />
-                {paymentFile ? (
-                  <div className="text-center">
-                    <CheckCircle2 className="text-green-400 mb-3 mx-auto" size={40} />
-                    <p className="text-white font-medium break-all px-4">{paymentFile.name}</p>
-                    <p className="text-xs text-green-400 mt-2 font-mono bg-green-900/20 py-1 px-3 rounded-full inline-block">File attached successfully</p>
-                    <p className="text-xs text-gray-500 mt-4">Click anywhere to change file</p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <Upload className="text-gray-500 mb-4 mx-auto" size={40} />
-                    <p className="text-gray-300 font-medium">Click or drag to upload receipt</p>
-                    <p className="text-xs text-purple-400 mt-2 font-bold uppercase tracking-widest">Strict Limit: Max 1MB</p>
-                    <p className="text-xs text-gray-500 mt-1">Supports PDF, PNG, JPG only.</p>
-                  </div>
-                )}
+              <div className="space-y-4">
+                {Array.from({ length: teamSize }).map((_, index) => {
+                  const currentFile = paymentFiles[index] || null;
+                  return (
+                    <div key={index} className="border-2 border-dashed border-gray-600 hover:border-cyan-500/50 bg-black/40 rounded-xl p-5 flex flex-col items-center justify-center transition-colors cursor-pointer relative min-h-[210px]">
+                      <p className="text-xs text-gray-400 uppercase tracking-widest mb-3">
+                        Attach Payment of Member {index + 1}
+                      </p>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/png,image/jpeg,image/jpg" 
+                        onChange={(e) => handleFileChange(index, e)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-0" 
+                        required
+                        disabled={isSubmitting} 
+                      />
+                      {currentFile ? (
+                        <div className="text-center">
+                          <CheckCircle2 className="text-green-400 mb-3 mx-auto" size={36} />
+                          <p className="text-white font-medium break-all px-4 text-sm">{currentFile.name}</p>
+                          <p className="text-xs text-green-400 mt-2 font-mono bg-green-900/20 py-1 px-3 rounded-full inline-block">File attached</p>
+                          <p className="text-xs text-gray-500 mt-4">Click anywhere to change file</p>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <Upload className="text-gray-500 mb-3 mx-auto" size={36} />
+                          <p className="text-gray-300 font-medium text-sm">Click or drag to upload receipt</p>
+                          <p className="text-xs text-purple-400 mt-2 font-bold uppercase tracking-widest">Strict Limit: Max 1MB</p>
+                          <p className="text-xs text-gray-500 mt-1">Supports PDF, PNG, JPG only.</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             <div className="flex gap-4 pt-4 border-t border-white/10 mt-auto">
               <button type="button" onClick={() => setStep(2)} disabled={isSubmitting} className="px-6 py-4 rounded-lg font-bold bg-white/5 hover:bg-white/10 disabled:opacity-50 transition-all text-gray-300">Back</button>
-              <button type="submit" disabled={!paymentFile || isSubmitting} className="flex-1 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed py-4 rounded-lg font-bold uppercase tracking-wide flex justify-center items-center gap-2 transition-all shadow-lg">
+              <button type="submit" disabled={paymentFiles.length !== teamSize || paymentFiles.some((f) => !f) || isSubmitting} className="flex-1 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed py-4 rounded-lg font-bold uppercase tracking-wide flex justify-center items-center gap-2 transition-all shadow-lg">
                 {isSubmitting ? (
                   <><Loader2 className="animate-spin" size={20} /> Processing...</>
                 ) : (

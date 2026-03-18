@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { teamName, trackId, teamSize, receiptUrl, members } = body;
+    const { teamName, trackId, teamSize, receiptUrls, members } = body;
 
     // Input validation
     if (!teamName || typeof teamName !== 'string' || teamName.trim().length === 0 || teamName.trim().length > 100) {
@@ -36,7 +36,10 @@ export async function POST(request: Request) {
     if (typeof teamSize !== 'number' || teamSize < 1 || teamSize > 4) {
       return json({ error: "Team size must be between 1 and 4." }, { status: 400 });
     }
-    if (!receiptUrl || typeof receiptUrl !== 'string' || !receiptUrl.startsWith('https://')) {
+    if (!Array.isArray(receiptUrls) || receiptUrls.length !== teamSize) {
+      return json({ error: "Invalid receipt URLs." }, { status: 400 });
+    }
+    if (receiptUrls.some((url: any) => typeof url !== 'string' || !url.startsWith('https://'))) {
       return json({ error: "Invalid receipt URL." }, { status: 400 });
     }
     if (!Array.isArray(members) || members.length !== teamSize) {
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
         p_team_name: teamName,
         p_track_id: trackId,
         p_team_size: teamSize,
-        p_receipt_url: receiptUrl
+        p_receipt_url: receiptUrls[0]
       }
     );
 
@@ -142,25 +145,51 @@ export async function POST(request: Request) {
     const teamId = teamData[0].new_team_id;
     const teamNumber = teamData[0].new_team_number;
 
-    // 4. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
+    // 4. Store receipt URLs (member-indexed)
+    const receiptRows = receiptUrls.map((url: string, idx: number) => ({
+      team_id: teamId,
+      member_index: idx + 1,
+      receipt_url: url
+    }));
+
+    const { error: receiptsError } = await supabaseAdmin
+      .from('payment_receipts')
+      .insert(receiptRows);
+
+    if (receiptsError) {
+      console.error("Receipt insertion failed. Rolling back team record...", receiptsError);
+      if (createdTeamId) {
+        const { error: rollbackError } = await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
+        if (rollbackError) {
+          console.error("Failed to rollback team after receipt insert error.", rollbackError);
+        }
+      }
+      return json(
+        { error: receiptsError.message || "Failed to store payment receipts.", dbError: receiptsError.message, dbCode: receiptsError.code, dbDetails: receiptsError.details, dbHint: receiptsError.hint },
+        { status: 500 }
+      );
+    }
+
+    // 5. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
     const candidatesData = members.map((member: any, index: number) => {
       const srnUpper = member.srn.trim().toUpperCase();
       const needsCycle = srnUpper.startsWith(CYCLE_PREFIX);
       return {
-      team_id: teamId,
-      is_leader: index === 0,
-      full_name: member.name,
-      srn: srnUpper,
-      email: member.email.trim().toLowerCase(),
-      phone: member.phone,
-      cycle: needsCycle ? member.cycle : null,
-      is_present: false,
-      lunch_received: false,
-      snacks_received: false
+        team_id: teamId,
+        is_leader: index === 0,
+        member_index: index + 1,
+        full_name: member.name,
+        srn: srnUpper,
+        email: member.email.trim().toLowerCase(),
+        phone: member.phone,
+        cycle: needsCycle ? member.cycle : null,
+        is_present: false,
+        lunch_received: false,
+        snacks_received: false
       };
     });
 
-    // 5. Insert Candidates into the Database
+    // 6. Insert Candidates into the Database
     const { error: candidatesError } = await supabaseAdmin
       .from('candidates')
       .insert(candidatesData);
@@ -179,7 +208,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. Send "Pending Approval" Email to ALL team members
+    // 7. Send "Pending Approval" Email to ALL team members
     const emailResults = await Promise.allSettled(
       members.map((member: any) =>
         sendPendingRegistrationEmail(member.name, member.email, teamName)
@@ -200,7 +229,7 @@ export async function POST(request: Request) {
       console.warn(`${emailFailures.length} pending emails failed to send for team ${teamName}.`, emailFailures);
     }
 
-    // 7. Return Success without credentials
+    // 8. Return Success without credentials
     return json({
       success: true,
       teamNumber,

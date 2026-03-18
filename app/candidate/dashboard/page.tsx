@@ -4,6 +4,8 @@
 import React, { useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { LogOut, MapPin, Coffee, Utensils, CheckCircle2, Users, Hash, Loader2, ShieldAlert, User as UserIcon, QrCode, Timer, Clock, Radio } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { supabase } from "@/lib/supabase";
 
 type QRMode = 'is_present' | 'lunch_received' | 'snacks_received';
@@ -21,6 +23,9 @@ export default function CandidateDashboard() {
   const [qrVisible, setQrVisible] = useState(false);
   const [qrToken, setQrToken] = useState<string | null>(null); 
   const [countdown, setCountdown] = useState(30);
+  const [problemContent, setProblemContent] = useState("");
+  const [isProblemLoading, setIsProblemLoading] = useState(true);
+  const [problemError, setProblemError] = useState("");
 
   const getInitials = (name: string) => {
     if (!name) return "??";
@@ -50,7 +55,7 @@ export default function CandidateDashboard() {
           id, 
           team_name,
           team_number,
-          tracks (title),
+          tracks (id, title),
           candidates (id, email, full_name, srn, is_leader, is_present, lunch_received, snacks_received)
         `)
         .eq('id', teamId)
@@ -66,6 +71,7 @@ export default function CandidateDashboard() {
         name: teamData.team_name,
         number: teamData.team_number,
         track: (teamData.tracks as any)?.title || "Unknown Track",
+        trackId: (teamData.tracks as any)?.id || null,
         members: teamData.candidates.sort((a: any, b: any) => b.is_leader - a.is_leader)
       });
 
@@ -111,6 +117,28 @@ export default function CandidateDashboard() {
 
     return () => { supabase.removeChannel(subscription); };
   }, [team?.id]);
+
+  // Fetch problem statement markdown once trackId is available
+  useEffect(() => {
+    if (!team?.trackId) return;
+
+    const fetchMarkdown = async () => {
+      try {
+        setIsProblemLoading(true);
+        setProblemError("");
+        const res = await fetch(`/problems/${team.trackId}.md`);
+        if (!res.ok) throw new Error("Problem statement file not found.");
+        const text = await res.text();
+        setProblemContent(text);
+      } catch (err: any) {
+        setProblemError(err.message || "Failed to load problem statement.");
+      } finally {
+        setIsProblemLoading(false);
+      }
+    };
+
+    fetchMarkdown();
+  }, [team?.trackId]);
 
   // Realtime listener for event_settings — updates candidate view instantly when admin toggles
   useEffect(() => {
@@ -222,56 +250,121 @@ export default function CandidateDashboard() {
           </button>
         </nav>
 
-        <main className="p-5 max-w-md mx-auto flex flex-col items-center animate-in fade-in duration-500">
-
-          {/* Waiting banner */}
-          <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-yellow-500/20 rounded-3xl p-8 mb-6 flex flex-col items-center text-center shadow-2xl">
-            <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mb-5 border border-yellow-500/20">
-              <Clock size={28} className="text-yellow-400" />
-            </div>
-            <h2 className="font-black text-xl text-white mb-2">Event Hasn't Started Yet</h2>
-            <p className="text-sm text-gray-400 leading-relaxed max-w-xs">Your registration is confirmed. Your digital passes and QR codes will unlock once the event goes live.</p>
-            <div className="flex items-center gap-2 mt-5 bg-yellow-500/10 border border-yellow-500/20 px-4 py-2 rounded-full">
-              <Radio size={14} className="text-yellow-400" />
-              <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest">Waiting for event signal</span>
-            </div>
-          </div>
-
-          {/* Profile card — same as full dashboard */}
-          <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
-
-            <div className="flex items-center gap-4 mb-5 border-b border-white/5 pb-5">
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black border-2 border-cyan-500/30 flex items-center justify-center text-lg font-black text-cyan-400 shadow-inner">
-                {getInitials(currentUser.full_name)}
+        <main className="p-5 lg:p-8 max-w-6xl mx-auto animate-in fade-in duration-500">
+          <div className="w-full flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:gap-8">
+            <div className="flex flex-col gap-6">
+              {/* Waiting banner */}
+              <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-yellow-500/20 rounded-3xl p-8 flex flex-col items-center text-center shadow-2xl">
+                <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mb-5 border border-yellow-500/20">
+                  <Clock size={28} className="text-yellow-400" />
+                </div>
+                <h2 className="font-black text-xl text-white mb-2">Event Hasn't Started Yet</h2>
+                <p className="text-sm text-gray-400 leading-relaxed max-w-xs">Your registration is confirmed. Your digital passes and QR codes will unlock once the event goes live.</p>
+                <div className="flex items-center gap-2 mt-5 bg-yellow-500/10 border border-yellow-500/20 px-4 py-2 rounded-full">
+                  <Radio size={14} className="text-yellow-400" />
+                  <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest">Waiting for event signal</span>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-white leading-tight">{currentUser.full_name}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
-                    <Hash size={12} /> {currentUser.srn}
-                  </span>
-                  {currentUser.is_leader && (
-                    <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
-                      Leader
-                    </span>
-                  )}
+
+              <div className="w-full bg-[#121212] border border-white/5 rounded-3xl p-5 shadow-lg">
+                <h3 className="font-bold text-gray-300 uppercase tracking-wider text-xs mb-4">Event Info</h3>
+                <div className="space-y-3 text-sm text-gray-300">
+                  <p><span className="text-gray-500 uppercase tracking-widest text-[10px] font-bold">📍 Location</span><br />MRD Auditorium, PES University</p>
+                  <p><span className="text-gray-500 uppercase tracking-widest text-[10px] font-bold">📅 Date &amp; Time</span><br />March 28, 2026 — 8:00 AM to 6:00 PM</p>
+                  <p><span className="text-gray-500 uppercase tracking-widest text-[10px] font-bold">🏆 Prize Pool</span><br />Rs 35000+</p>
+                  <p><span className="text-gray-500 uppercase tracking-widest text-[10px] font-bold">🤝 Sponsors</span><br />C-DAC, Zintoo</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-black/50 rounded-xl p-4 border border-white/5">
-              <div className="flex justify-between items-start mb-1">
-                <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Official Team</span>
-                <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20">
-                  #{team.number.toString().padStart(3, '0')}
-                </span>
+            <div className="flex flex-col gap-6">
+              {/* Profile card — same as full dashboard */}
+              <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
+
+                <div className="flex items-center gap-4 mb-5 border-b border-white/5 pb-5">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black border-2 border-cyan-500/30 flex items-center justify-center text-lg font-black text-cyan-400 shadow-inner">
+                    {getInitials(currentUser.full_name)}
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white leading-tight">{currentUser.full_name}</h2>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
+                        <Hash size={12} /> {currentUser.srn}
+                      </span>
+                      {currentUser.is_leader && (
+                        <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
+                          Leader
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-black/50 rounded-xl p-4 border border-white/5">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Official Team</span>
+                    <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20">
+                      #{team.number.toString().padStart(3, '0')}
+                    </span>
+                  </div>
+                  <p className="font-bold text-white text-lg mb-1">{team.name}</p>
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                    <ShieldAlert size={12} className="text-cyan-500" /> {team.track}
+                  </p>
+                </div>
               </div>
-              <p className="font-bold text-white text-lg mb-1">{team.name}</p>
-              <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                <ShieldAlert size={12} className="text-cyan-500" /> {team.track}
-              </p>
+
+              <div className="w-full bg-[#121212] border border-white/5 rounded-3xl p-5 shadow-lg">
+                <h3 className="font-bold text-gray-300 uppercase tracking-wider text-xs mb-4">Team Members</h3>
+                <div className="space-y-3">
+                  {team.members.map((member: any) => {
+                    const isMe = member.id === currentUser.id;
+                    return (
+                      <div key={member.id} className="flex items-center justify-between bg-black/40 border border-white/5 rounded-xl px-4 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                            {member.full_name}
+                            {isMe && <span className="text-gray-500 text-xs font-normal">(You)</span>}
+                            {member.is_leader && (
+                              <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
+                                Leader
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[10px] text-gray-500 font-mono mt-1 flex items-center gap-1">
+                            <Hash size={12} /> {member.srn}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
+          </div>
+
+          <div className="w-full bg-[#121212] border border-white/5 rounded-3xl p-5 shadow-lg mt-6 lg:mt-8">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-gray-300 uppercase tracking-wider text-xs">Problem Statement</h3>
+              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20 uppercase tracking-widest">
+                {team.track}
+              </span>
+            </div>
+            {isProblemLoading ? (
+              <div className="flex flex-col items-center justify-center h-32 text-cyan-500">
+                <Loader2 className="animate-spin mb-3" size={28} />
+                <p className="text-xs tracking-widest uppercase font-mono text-gray-400">Loading Document...</p>
+              </div>
+            ) : problemError ? (
+              <div className="text-sm text-red-400">{problemError}</div>
+            ) : (
+              <article className="prose prose-invert prose-cyan max-w-none prose-headings:border-b prose-headings:border-white/10 prose-headings:pb-2 prose-a:text-cyan-400 prose-pre:bg-[#121212] prose-pre:border prose-pre:border-white/10">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {problemContent}
+                </ReactMarkdown>
+              </article>
+            )}
           </div>
 
         </main>
@@ -313,162 +406,167 @@ export default function CandidateDashboard() {
         </button>
       </nav>
 
-      <main className="p-5 max-w-md mx-auto flex flex-col items-center animate-in fade-in duration-500">
-        
-        <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 mb-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
-          
-          <div className="flex items-center gap-4 mb-5 border-b border-white/5 pb-5">
-            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black border-2 border-cyan-500/30 flex items-center justify-center text-lg font-black text-cyan-400 shadow-inner">
-              {getInitials(currentUser.full_name)}
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white leading-tight">{currentUser.full_name}</h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
-                  <Hash size={12} /> {currentUser.srn}
-                </span>
-                {currentUser.is_leader && (
-                  <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
-                    Leader
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-black/50 rounded-xl p-4 border border-white/5">
-            <div className="flex justify-between items-start mb-1">
-              <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Official Team</span>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20">
-                #{team.number.toString().padStart(3, '0')}
-              </span>
-            </div>
-            <p className="font-bold text-white text-lg mb-1">{team.name}</p>
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <ShieldAlert size={12} className="text-cyan-500" /> {team.track}
-            </p>
-          </div>
-        </div>
-
-        <div className="w-full mb-8">
-          <h3 className="font-bold text-gray-400 mb-4 uppercase tracking-widest text-xs px-2">Select Digital Pass</h3>
-          
-          <div className="flex bg-[#121212] p-1.5 rounded-2xl border border-white/10 mb-6">
-            <button 
-              onClick={() => { setQrMode('is_present'); setQrVisible(false); setQrToken(null); }}
-              className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'is_present' ? 'bg-[#1f1f1f] text-cyan-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              <MapPin size={18} /> Check-In
-            </button>
-            <button 
-              onClick={() => { setQrMode('lunch_received'); setQrVisible(false); setQrToken(null); }}
-              className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'lunch_received' ? 'bg-[#1f1f1f] text-green-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              <Utensils size={18} /> Lunch
-            </button>
-            <button 
-              onClick={() => { setQrMode('snacks_received'); setQrVisible(false); setQrToken(null); }}
-              className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'snacks_received' ? 'bg-[#1f1f1f] text-yellow-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              <Coffee size={18} /> Snacks
-            </button>
-          </div>
-
-          <div className={`w-full bg-black border-2 rounded-[2rem] p-8 flex flex-col items-center relative transition-colors duration-500 overflow-hidden ${activeConfig.border} ${activeConfig.bg}`}>
-            
-            <div className={`flex items-center gap-2 mb-6 ${activeConfig.text}`}>
-              <ActiveIcon size={20} />
-              <h3 className="font-black text-xl tracking-wide uppercase">{activeConfig.title}</h3>
-            </div>
-
-            <div className="relative group bg-white p-5 rounded-3xl shadow-xl min-h-[220px] min-w-[220px] flex items-center justify-center">
+      <main className="p-5 lg:p-8 max-w-6xl mx-auto animate-in fade-in duration-500">
+        <div className="w-full flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:gap-8">
+          <div className="flex flex-col gap-6">
+            <div className="w-full bg-gradient-to-b from-[#121212] to-[#0a0a0a] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 blur-[40px] rounded-full"></div>
               
-              <div className="transition-all duration-500 flex flex-col items-center">
-                {isClaimed ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center animate-in zoom-in duration-300 bg-white rounded-3xl z-10">
-                    <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center border-4 border-green-500 shadow-xl mb-3">
-                      <CheckCircle2 className="text-green-500" size={40} />
-                    </div>
-                    <span className="text-green-600 font-black text-lg uppercase tracking-widest">
-                      Verified
+              <div className="flex items-center gap-4 mb-5 border-b border-white/5 pb-5">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black border-2 border-cyan-500/30 flex items-center justify-center text-lg font-black text-cyan-400 shadow-inner">
+                  {getInitials(currentUser.full_name)}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white leading-tight">{currentUser.full_name}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
+                      <Hash size={12} /> {currentUser.srn}
                     </span>
-                    <span className="text-gray-500 text-xs font-mono mt-2">Good to go!</span>
-                  </div>
-                ) : (qrVisible && qrToken) ? (
-                  <div className="flex flex-col items-center animate-in zoom-in duration-300">
-                    <div className="bg-white p-2 rounded-xl">
-                      <QRCode 
-                        value={qrPayload}
-                        size={180}
-                        level="H"
-                      />
-                    </div>
-                    
-                    <div className={`mt-4 bg-black/95 backdrop-blur-md px-5 py-2.5 rounded-full flex items-center gap-2 text-xs font-bold font-mono whitespace-nowrap shadow-xl border border-white/10 transition-colors ${countdown <= 10 ? 'text-red-400 border-red-500/50 scale-105' : 'text-white'}`}>
-                      <Timer size={14} className={countdown <= 10 ? 'animate-pulse' : ''} />
-                      00:{countdown.toString().padStart(2, '0')}
-                    </div>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={handleGenerateQR}
-                    disabled={isGenerating}
-                    className={`flex flex-col items-center justify-center gap-3 w-[180px] h-[180px] rounded-2xl border-2 border-dashed bg-gray-50 transition-all hover:bg-gray-100 active:scale-95 animate-in zoom-in duration-300 disabled:opacity-50 disabled:scale-100 ${activeConfig.border} ${activeConfig.text}`}
-                  >
-                    {isGenerating ? (
-                      <Loader2 size={48} className="animate-spin opacity-60 mb-1" />
-                    ) : (
-                      <QrCode size={48} className="opacity-60 mb-1" />
-                    )}
-                    <div className="flex flex-col items-center gap-1">
-                      <span className="font-black uppercase tracking-widest text-sm text-black">
-                        {isGenerating ? "Generating..." : "Tap to Reveal"}
+                    {currentUser.is_leader && (
+                      <span className="bg-cyan-500/20 text-cyan-300 text-[9px] px-2 py-0.5 rounded uppercase tracking-widest font-bold border border-cyan-500/30">
+                        Leader
                       </span>
-                      <span className="text-[10px] text-gray-500 font-mono font-bold">VALID FOR 30 SEC</span>
-                    </div>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <p className="text-gray-400 font-mono uppercase tracking-widest text-[10px] mt-8 text-center px-4">
-              {isClaimed ? "You have already completed this step." : (qrVisible ? "Present this code to the event staff quickly." : "Do not generate until you reach the desk.")}
-            </p>
-          </div>
-        </div>
-
-        <div className="w-full bg-[#121212] border border-white/5 rounded-3xl p-5 shadow-lg">
-          <div className="flex justify-between items-center mb-4 px-1">
-            <h3 className="font-bold text-gray-300 uppercase tracking-wider text-xs">Team Status</h3>
-            <span className={`text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-black border border-white/10 ${activeConfig.text}`}>
-              {activeConfig.title}
-            </span>
-          </div>
-
-          <div className="divide-y divide-white/5">
-            {team.members.map((member: any) => {
-              const memberClaimed = member[qrMode];
-              const isMe = member.id === currentUser.id;
-
-              return (
-                <div key={member.id} className="flex justify-between items-center py-3 first:pt-1 last:pb-1">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${memberClaimed ? `${activeConfig.bg} ${activeConfig.border} ${activeConfig.text}` : 'bg-black border-gray-800 text-gray-600'}`}>
-                      {memberClaimed ? <CheckCircle2 size={14} /> : <UserIcon size={14} />}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-gray-200 flex items-center gap-2">
-                        {member.full_name} {isMe && <span className="text-gray-500 text-xs font-normal">(You)</span>}
-                      </p>
-                      <p className="text-[10px] text-gray-500 font-mono mt-0.5">
-                        {memberClaimed ? "Verified" : "Pending"}
-                      </p>
-                    </div>
+                    )}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+
+              <div className="bg-black/50 rounded-xl p-4 border border-white/5">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Official Team</span>
+                  <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/20">
+                    #{team.number.toString().padStart(3, '0')}
+                  </span>
+                </div>
+                <p className="font-bold text-white text-lg mb-1">{team.name}</p>
+                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                  <ShieldAlert size={12} className="text-cyan-500" /> {team.track}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-6">
+            <div className="w-full lg:mb-0">
+              <h3 className="font-bold text-gray-400 mb-4 uppercase tracking-widest text-xs px-2">Select Digital Pass</h3>
+              
+              <div className="flex bg-[#121212] p-1.5 rounded-2xl border border-white/10 mb-6">
+                <button 
+                  onClick={() => { setQrMode('is_present'); setQrVisible(false); setQrToken(null); }}
+                  className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'is_present' ? 'bg-[#1f1f1f] text-cyan-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <MapPin size={18} /> Check-In
+                </button>
+                <button 
+                  onClick={() => { setQrMode('lunch_received'); setQrVisible(false); setQrToken(null); }}
+                  className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'lunch_received' ? 'bg-[#1f1f1f] text-green-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <Utensils size={18} /> Lunch
+                </button>
+                <button 
+                  onClick={() => { setQrMode('snacks_received'); setQrVisible(false); setQrToken(null); }}
+                  className={`flex-1 py-3 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all flex flex-col items-center gap-1.5 ${qrMode === 'snacks_received' ? 'bg-[#1f1f1f] text-yellow-400 shadow-md border border-white/5' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <Coffee size={18} /> Snacks
+                </button>
+              </div>
+
+              <div className={`w-full bg-black border-2 rounded-[2rem] p-8 flex flex-col items-center relative transition-colors duration-500 overflow-hidden ${activeConfig.border} ${activeConfig.bg}`}>
+                
+                <div className={`flex items-center gap-2 mb-6 ${activeConfig.text}`}>
+                  <ActiveIcon size={20} />
+                  <h3 className="font-black text-xl tracking-wide uppercase">{activeConfig.title}</h3>
+                </div>
+
+                <div className="relative group bg-white p-5 rounded-3xl shadow-xl min-h-[220px] min-w-[220px] flex items-center justify-center">
+                  
+                  <div className="transition-all duration-500 flex flex-col items-center">
+                    {isClaimed ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center animate-in zoom-in duration-300 bg-white rounded-3xl z-10">
+                        <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center border-4 border-green-500 shadow-xl mb-3">
+                          <CheckCircle2 className="text-green-500" size={40} />
+                        </div>
+                        <span className="text-green-600 font-black text-lg uppercase tracking-widest">
+                          Verified
+                        </span>
+                        <span className="text-gray-500 text-xs font-mono mt-2">Good to go!</span>
+                      </div>
+                    ) : (qrVisible && qrToken) ? (
+                      <div className="flex flex-col items-center animate-in zoom-in duration-300">
+                        <div className="bg-white p-2 rounded-xl">
+                          <QRCode 
+                            value={qrPayload}
+                            size={180}
+                            level="H"
+                          />
+                        </div>
+                        
+                        <div className={`mt-4 bg-black/95 backdrop-blur-md px-5 py-2.5 rounded-full flex items-center gap-2 text-xs font-bold font-mono whitespace-nowrap shadow-xl border border-white/10 transition-colors ${countdown <= 10 ? 'text-red-400 border-red-500/50 scale-105' : 'text-white'}`}>
+                          <Timer size={14} className={countdown <= 10 ? 'animate-pulse' : ''} />
+                          00:{countdown.toString().padStart(2, '0')}
+                        </div>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={handleGenerateQR}
+                        disabled={isGenerating}
+                        className={`flex flex-col items-center justify-center gap-3 w-[180px] h-[180px] rounded-2xl border-2 border-dashed bg-gray-50 transition-all hover:bg-gray-100 active:scale-95 animate-in zoom-in duration-300 disabled:opacity-50 disabled:scale-100 ${activeConfig.border} ${activeConfig.text}`}
+                      >
+                        {isGenerating ? (
+                          <Loader2 size={48} className="animate-spin opacity-60 mb-1" />
+                        ) : (
+                          <QrCode size={48} className="opacity-60 mb-1" />
+                        )}
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="font-black uppercase tracking-widest text-sm text-black">
+                            {isGenerating ? "Generating..." : "Tap to Reveal"}
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-mono font-bold">VALID FOR 30 SEC</span>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-gray-400 font-mono uppercase tracking-widest text-[10px] mt-8 text-center px-4">
+                  {isClaimed ? "You have already completed this step." : (qrVisible ? "Present this code to the event staff quickly." : "Do not generate until you reach the desk.")}
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full bg-[#121212] border border-white/5 rounded-3xl p-5 shadow-lg">
+              <div className="flex justify-between items-center mb-4 px-1">
+                <h3 className="font-bold text-gray-300 uppercase tracking-wider text-xs">Team Status</h3>
+                <span className={`text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-black border border-white/10 ${activeConfig.text}`}>
+                  {activeConfig.title}
+                </span>
+              </div>
+
+              <div className="divide-y divide-white/5">
+                {team.members.map((member: any) => {
+                  const memberClaimed = member[qrMode];
+                  const isMe = member.id === currentUser.id;
+
+                  return (
+                    <div key={member.id} className="flex justify-between items-center py-3 first:pt-1 last:pb-1">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${memberClaimed ? `${activeConfig.bg} ${activeConfig.border} ${activeConfig.text}` : 'bg-black border-gray-800 text-gray-600'}`}>
+                          {memberClaimed ? <CheckCircle2 size={14} /> : <UserIcon size={14} />}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm text-gray-200 flex items-center gap-2">
+                            {member.full_name} {isMe && <span className="text-gray-500 text-xs font-normal">(You)</span>}
+                          </p>
+                          <p className="text-[10px] text-gray-500 font-mono mt-0.5">
+                            {memberClaimed ? "Verified" : "Pending"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
