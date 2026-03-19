@@ -16,7 +16,7 @@
 # next.js
 /.next/
 /out/
-
+client_secret_2_313695678450-qlk9tlsn52hn43lnm6iufhri0admk7r6.apps.googleusercontent.com.json
 # production
 /build
 
@@ -31,7 +31,7 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+.env
 
 # vercel
 .vercel

@@ -1,59 +1,36 @@
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+# PS1 — DPDP Compliance & Data Protection Intelligence Bot
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
+> **Domain:** Legal AI / NLP / Compliance Automation
 
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+---
 
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+## Problem Statement
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
+Design an AI-powered compliance assistant that helps organizations and individuals understand and comply with data protection laws such as the **Digital Personal Data Protection (DPDP) Act, 2023**, **GDPR**, and relevant sections of the **IT Act**. The bot should answer user queries, explain legal provisions in simple language, and perform basic compliance checks on organizational policies.
 
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+---
 
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+## Key Objectives
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
+- Answer natural language queries on DPDP Act, GDPR, and IT Act
+- Explain rights, obligations, penalties, and compliance requirements
+- Perform checklist-based compliance assessment
+- Highlight gaps and potential risks
 
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+---
 
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+## Datasets / Resources
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
+| Resource | Link |
+|---|---|
+| DPDP Act, 2023 (MeitY) | https://www.meity.gov.in/data-protection-framework |
+| GDPR (EU Regulation) | https://gdpr-info.eu |
+| Information Technology Act, 2000 (IndiaCode) | https://www.indiacode.nic.in/bitstream/123456789/13116/1/it_act_2000_updated.pdf |
 
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+---
 
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+## Expected Output
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
-
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+- Conversational compliance chatbot
+- Compliance checklist and score (Synthetic data / Mock data)
+- Law-wise explanations with references

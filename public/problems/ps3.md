@@ -1,11 +1,33 @@
-# Campus Community Hub
-Build a comprehensive social platform tailored for university students. 
+# PS3 — Model Scanner for Vulnerability & Risk Detection
 
-## Core Requirements
-* **Authentication**: Must use university email domains.
-* **Database**: Implement a relational structure for posts, comments, and upvotes.
+> **Domain:** AI Security / Responsible AI / Model Governance
 
-### API Specifications
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/posts` | `GET` | Fetch feed |
+---
+
+## Problem Statement
+
+Develop a **Model Scanner** that inspects AI/ML models, configurations, and pipelines to detect security vulnerabilities, privacy risks, bias issues, and compliance gaps. The tool should generate a comprehensive risk assessment for each model.
+
+---
+
+## Key Objectives
+
+- Detect data leakage and prompt-injection risks
+- Identify insecure dependencies and configurations
+- Generate actionable risk mitigation recommendations
+
+---
+
+## Datasets / Resources
+
+| Resource | Link |
+|---|---|
+| OWASP LLM Applications | https://genai.owasp.org/llm-top-10/ |
+| Hugging Face Model Hub | https://huggingface.co/models |
+
+---
+
+## Expected Output
+
+- Model risk and vulnerability score
+- Detailed scan report
