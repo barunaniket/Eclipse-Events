@@ -1,11 +1,10 @@
 // app/api/register/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
+import { sendPendingRegistrationEmail } from '@/lib/mailer';
+import { z } from 'zod';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CYCLE_PREFIX = "PES2UG25";
-const CYCLE_OPTIONS = new Set(["physics", "chemistry"]);
 const BUILD_TAG =
   process.env.CF_PAGES_COMMIT_SHA ??
   process.env.CF_PAGES_COMMIT_HASH ??
@@ -19,238 +18,78 @@ const json = (body: any, init?: ResponseInit) => {
   return res;
 };
 
+const srnRegex = /^PES[12](?:UG|PG)\d{2}(?:CS|EC|AM)\d{3}$/i;
+const phoneRegex = /^(?:([+]\d{1,4})[-.\s]?)?(?:[(](\d{1,3})[)][-.\s]?)?(\d{1,4})[-.\s]?(\d{1,4})[-.\s]?(\d{1,9})$/;
+
+const memberSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(100),
+  email: z.string().trim().toLowerCase().email("Invalid email format"),
+  phone: z.string().trim().regex(phoneRegex, "Invalid phone number format"),
+  srn: z.string().trim().toUpperCase().regex(srnRegex, "Invalid SRN format"),
+  cycle: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.srn.startsWith(CYCLE_PREFIX) && (!data.cycle || !["physics", "chemistry"].includes(data.cycle))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Cycle selection is required for SRN ${data.srn}.`,
+      path: ["cycle"]
+    });
+  }
+});
+
+const registrationSchema = z.object({
+  teamName: z.string().trim().min(1, "Team name is required").max(100),
+  trackId: z.string().uuid("Invalid track ID format"),
+  teamSize: z.number().int().min(1).max(4),
+  receiptUrls: z.array(z.string().url("Invalid receipt URL")),
+  members: z.array(memberSchema),
+}).refine(data => data.receiptUrls.length === data.teamSize && data.members.length === data.teamSize, {
+  message: "Receipts and members count must match team size."
+});
+
 export async function POST(request: Request) {
-  let createdTeamId: string | null = null;
-
   try {
-    const body = await request.json();
-    const { teamName, trackId, teamSize, receiptUrls, members } = body;
+    const rawBody = await request.json();
 
-    // Input validation
-    if (!teamName || typeof teamName !== 'string' || teamName.trim().length === 0 || teamName.trim().length > 100) {
-      return json({ error: "Invalid team name." }, { status: 400 });
+    const validationResult = registrationSchema.safeParse(rawBody);
+    if (!validationResult.success) {
+      return json({ error: validationResult.error.errors[0].message, details: validationResult.error.errors }, { status: 400 });
     }
-    if (!trackId || typeof trackId !== 'string') {
-      return json({ error: "Invalid track selection." }, { status: 400 });
-    }
-    if (typeof teamSize !== 'number' || teamSize < 1 || teamSize > 4) {
-      return json({ error: "Team size must be between 1 and 4." }, { status: 400 });
-    }
-    if (!Array.isArray(receiptUrls) || receiptUrls.length !== teamSize) {
-      return json({ error: "Invalid receipt URLs." }, { status: 400 });
-    }
-    if (receiptUrls.some((url: any) => typeof url !== 'string' || !url.startsWith('https://'))) {
-      return json({ error: "Invalid receipt URL." }, { status: 400 });
-    }
-    if (!Array.isArray(members) || members.length !== teamSize) {
-      return json({ error: "Member data is invalid." }, { status: 400 });
-    }
-    for (const member of members) {
-      if (!member.name || !member.email || !member.phone || !member.srn) {
-        return json({ error: "All member fields are required." }, { status: 400 });
-      }
-      if (!EMAIL_REGEX.test(member.email.trim())) {
-        return json({ error: `Invalid email format: ${member.email}` }, { status: 400 });
-      }
-      if (typeof member.name !== 'string' || member.name.trim().length > 100) {
-        return json({ error: "Invalid member name." }, { status: 400 });
-      }
-      if (typeof member.srn !== 'string' || member.srn.trim().length > 20) {
-        return json({ error: "Invalid SRN format." }, { status: 400 });
-      }
-      const srnUpper = member.srn.trim().toUpperCase();
-      if (srnUpper.startsWith(CYCLE_PREFIX)) {
-        if (typeof member.cycle !== 'string' || !CYCLE_OPTIONS.has(member.cycle)) {
-          return json({ error: `Cycle selection is required for SRN ${srnUpper}.` }, { status: 400 });
-        }
-      }
-    }
+    const payload = validationResult.data;
 
-    const emails = members.map((m: any) => m.email.trim().toLowerCase());
-    const srns = members.map((m: any) => m.srn.trim().toUpperCase());
-
-    // 1. PRE-CHECK: Ensure Emails are Unique
-    const { data: existingEmails, error: emailCheckError } = await supabaseAdmin
-      .from('candidates')
-      .select('email')
-      .in('email', emails);
-
-    if (emailCheckError) {
-      return json(
-        { error: "Failed to validate email uniqueness.", dbError: emailCheckError.message, dbCode: emailCheckError.code, dbDetails: emailCheckError.details, dbHint: emailCheckError.hint },
-        { status: 500 }
-      );
-    }
-
-    if (existingEmails && existingEmails.length > 0) {
-      return json({ error: `Duplicate entry: Email ${existingEmails[0].email} is already registered.` }, { status: 400 });
-    }
-
-    // 2. PRE-CHECK: Ensure SRNs are Unique
-    const { data: existingSrns, error: srnCheckError } = await supabaseAdmin
-      .from('candidates')
-      .select('srn')
-      .in('srn', srns);
-
-    if (srnCheckError) {
-      return json(
-        { error: "Failed to validate SRN uniqueness.", dbError: srnCheckError.message, dbCode: srnCheckError.code, dbDetails: srnCheckError.details, dbHint: srnCheckError.hint },
-        { status: 500 }
-      );
-    }
-
-    if (existingSrns && existingSrns.length > 0) {
-      return json({ error: `Duplicate entry: SRN ${existingSrns[0].srn} is already registered.` }, { status: 400 });
-    }
-
-    // 3. ATOMIC CAPACITY CHECK & INSERTION (RPC)
-    const { data: teamData, error: teamError } = await supabaseAdmin.rpc(
-      'register_team_with_capacity_check', 
-      {
-        p_team_name: teamName,
-        p_track_id: trackId,
-        p_team_size: teamSize,
-        p_receipt_url: receiptUrls[0]
-      }
-    );
-
-    if (teamError) {
-      console.error("Team creation RPC failed:", teamError);
-      if (teamError.message.includes('TRACK_FULL')) {
-        return json(
-          { error: "Registration failed. This track just reached its maximum capacity.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
-          { status: 400 }
-        );
-      }
-      if (teamError.message.includes('INVALID_TRACK')) {
-        return json(
-          { error: "Invalid track selected.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
-          { status: 400 }
-        );
-      }
-      return json(
-        { error: teamError.message || "Failed to create team.", dbError: teamError.message, dbCode: teamError.code, dbDetails: teamError.details, dbHint: teamError.hint },
-        { status: 400 }
-      );
-    }
-
-    if (!teamData || teamData.length === 0) {
-      return json(
-        { error: "Team creation failed.", dbError: "RPC returned no data." },
-        { status: 500 }
-      );
-    }
-
-    createdTeamId = teamData[0].new_team_id;
-    const teamId = teamData[0].new_team_id;
-    const teamNumber = teamData[0].new_team_number;
-
-    // 4. Store receipt URLs (member-indexed)
-    const receiptRows = receiptUrls.map((url: string, idx: number) => ({
-      team_id: teamId,
-      member_index: idx + 1,
-      receipt_url: url
-    }));
-
-    const { error: receiptsError } = await supabaseAdmin
-      .from('payment_receipts')
-      .insert(receiptRows);
-
-    if (receiptsError) {
-      console.error("Receipt insertion failed. Rolling back team record...", receiptsError);
-      if (createdTeamId) {
-        const { error: rollbackError } = await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
-        if (rollbackError) {
-          console.error("Failed to rollback team after receipt insert error.", rollbackError);
-        }
-      }
-      return json(
-        { error: receiptsError.message || "Failed to store payment receipts.", dbError: receiptsError.message, dbCode: receiptsError.code, dbDetails: receiptsError.details, dbHint: receiptsError.hint },
-        { status: 500 }
-      );
-    }
-
-    // 5. Process Each Candidate (Database Record ONLY - NO Auth Creation Yet)
-    const candidatesData = members.map((member: any, index: number) => {
-      const srnUpper = member.srn.trim().toUpperCase();
-      const needsCycle = srnUpper.startsWith(CYCLE_PREFIX);
-      return {
-        team_id: teamId,
-        is_leader: index === 0,
-        member_index: index + 1,
-        full_name: member.name,
-        srn: srnUpper,
-        email: member.email.trim().toLowerCase(),
-        phone: member.phone,
-        cycle: needsCycle ? member.cycle : null,
-        is_present: false,
-        lunch_received: false,
-        snacks_received: false
-      };
+    // Call the single atomic PostgreSQL function
+    const { data: teamData, error: dbError } = await supabaseAdmin.rpc('register_full_team', {
+      payload: payload
     });
 
-    // 6. Insert Candidates into the Database
-    const { error: candidatesError } = await supabaseAdmin
-      .from('candidates')
-      .insert(candidatesData);
-
-    if (candidatesError) {
-      console.error("Candidate insertion failed. Rolling back team record...", candidatesError);
-      if (createdTeamId) {
-        const { error: rollbackError } = await supabaseAdmin.from('teams').delete().eq('id', createdTeamId);
-        if (rollbackError) {
-          console.error("Failed to rollback team after candidate insert error.", rollbackError);
-        }
+    if (dbError) {
+      console.error("Database Error:", dbError);
+      if (dbError.code === '23505') { 
+        const field = dbError.message.includes('email') ? 'Email' : 'SRN';
+        return json({ error: `${field} is already registered.` }, { status: 400 });
       }
-      return json(
-        { error: candidatesError.message || "Failed to insert candidates into the database.", dbError: candidatesError.message, dbCode: candidatesError.code, dbDetails: candidatesError.details, dbHint: candidatesError.hint },
-        { status: 500 }
-      );
+      if (dbError.message.includes('TRACK_FULL')) {
+        return json({ error: "This track just reached its maximum capacity." }, { status: 400 });
+      }
+      return json({ error: "Database error occurred.", dbDetails: dbError.message }, { status: 500 });
     }
 
-    // 7. Send "Pending Approval" Email to ALL team members
-    const emailResults = await Promise.allSettled(
-      members.map((member: any) =>
-        sendPendingRegistrationEmail(member.name, member.email, teamName)
+    // Fire-and-forget emails
+    Promise.allSettled(
+      payload.members.map((member) => 
+        sendPendingRegistrationEmail(member.name, member.email, payload.teamName)
       )
-    );
+    ).catch(console.error);
 
-    const emailFailures = emailResults
-      .map((result, idx) => {
-        if (result.status === 'rejected') {
-          const reason = (result.reason && (result.reason.message || String(result.reason))) || 'Unknown error';
-          return { email: members[idx].email, reason };
-        }
-        return null;
-      })
-      .filter(Boolean) as Array<{ email: string; reason: string }>;
-
-    if (emailFailures.length > 0) {
-      console.warn(`${emailFailures.length} pending emails failed to send for team ${teamName}.`, emailFailures);
-    }
-
-    // 8. Return Success without credentials
     return json({
       success: true,
-      teamNumber,
-      teamName,
-      status: 'pending',
-      emailsSent: members.length - emailFailures.length,
-      emailsFailed: emailFailures.length,
-      emailFailures
+      teamNumber: teamData.team_number,
+      teamName: payload.teamName,
+      status: 'pending'
     });
 
   } catch (error: any) {
-    console.error("API Route Error. Executing Rollback...", error);
-
-    // ROLLBACK MECHANISM: Only need to delete the team now
-    if (createdTeamId) {
-      supabaseAdmin.from('teams').delete().eq('id', createdTeamId).then(null, console.error);
-    }
-
-    return json(
-      { error: error.message || "Internal server error", dbError: error?.message },
-      { status: 500 }
-    );
+    console.error("API Route Error:", error);
+    return json({ error: "Internal server error.", details: error.message }, { status: 500 });
   }
 }
