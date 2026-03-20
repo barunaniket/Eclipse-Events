@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPendingRegistrationEmail } from '@/lib/mailer'; // We will create this in the next step
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SRN_REGEX = /^PES[12]UG2[2-5][A-Z]{2}\d{3}$/i;
 const CYCLE_PREFIX = "PES2UG25";
 const CYCLE_OPTIONS = new Set(["physics", "chemistry"]);
 const BUILD_TAG =
@@ -45,6 +46,14 @@ export async function POST(request: Request) {
     if (!Array.isArray(members) || members.length !== teamSize) {
       return json({ error: "Member data is invalid." }, { status: 400 });
     }
+    const normalizePhone = (phone: string) => {
+      let digits = phone.trim().replace(/[^\d+]/g, "");
+      if (digits.startsWith("+91")) digits = digits.slice(3);
+      if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
+      digits = digits.replace(/\D/g, "");
+      return digits;
+    };
+
     for (const member of members) {
       if (!member.name || !member.email || !member.phone || !member.srn) {
         return json({ error: "All member fields are required." }, { status: 400 });
@@ -59,6 +68,14 @@ export async function POST(request: Request) {
         return json({ error: "Invalid SRN format." }, { status: 400 });
       }
       const srnUpper = member.srn.trim().toUpperCase();
+      if (!SRN_REGEX.test(srnUpper)) {
+        return json({ error: `Invalid SRN format: ${member.srn}` }, { status: 400 });
+      }
+      const normalizedPhone = normalizePhone(member.phone);
+      if (!/^\d{10}$/.test(normalizedPhone)) {
+        return json({ error: `Invalid phone number: ${member.phone}` }, { status: 400 });
+      }
+      member.phone = normalizedPhone;
       if (srnUpper.startsWith(CYCLE_PREFIX)) {
         if (typeof member.cycle !== 'string' || !CYCLE_OPTIONS.has(member.cycle)) {
           return json({ error: `Cycle selection is required for SRN ${srnUpper}.` }, { status: 400 });

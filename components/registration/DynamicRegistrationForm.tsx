@@ -50,6 +50,36 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
   );
 
   const needsCycle = (srn: string) => srn.trim().toUpperCase().startsWith("PES2UG25");
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const SRN_REGEX = /^PES[12]UG2[2-5][A-Z]{2}\d{3}$/i;
+
+  const normalizePhone = (phone: string) => {
+    const trimmed = phone.trim();
+    let digits = trimmed.replace(/[^\d+]/g, "");
+    if (digits.startsWith("+91")) digits = digits.slice(3);
+    if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
+    digits = digits.replace(/\D/g, "");
+    return digits;
+  };
+
+  const validateMembers = (activeMembers: Array<{ name: string; email: string; phone: string; srn: string; cycle?: string }>) => {
+    for (let i = 0; i < activeMembers.length; i += 1) {
+      const member = activeMembers[i];
+      const label = i === 0 ? "Team Leader" : `Team Member ${i + 1}`;
+      if (!member.name.trim()) return `${label}: Name is required.`;
+      if (!EMAIL_REGEX.test(member.email.trim())) return `${label}: Invalid email format.`;
+      const normalizedPhone = normalizePhone(member.phone);
+      if (!/^\d{10}$/.test(normalizedPhone)) return `${label}: Invalid phone number. Use 10-digit Indian format.`;
+      const srnUpper = member.srn.trim().toUpperCase();
+      if (!SRN_REGEX.test(srnUpper)) return `${label}: Invalid SRN format.`;
+      if (needsCycle(srnUpper)) {
+        if (!member.cycle || (member.cycle !== "physics" && member.cycle !== "chemistry")) {
+          return `${label}: Select Physics/Chemistry cycle for SRN ${srnUpper}.`;
+        }
+      }
+    }
+    return "";
+  };
 
   const fetchLiveTracks = useCallback(async () => {
     setIsLoadingTracks(true);
@@ -179,13 +209,18 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
       }
 
       const activeMembers = members.slice(0, teamSize);
+      const validationError = validateMembers(activeMembers);
+      if (validationError) throw new Error(validationError);
       
       const payload = {
         teamName: teamName.trim(),
         trackId: selectedProblem,
         teamSize,
         receiptUrls,
-        members: activeMembers
+        members: activeMembers.map((m) => ({
+          ...m,
+          phone: normalizePhone(m.phone)
+        }))
       };
 
       const response = await fetch('/api/register', {
@@ -410,6 +445,13 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                </select>
              </div>
            </div>
+           
+           {submitError && (
+             <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-4 rounded-lg mb-6 text-sm flex items-start gap-3">
+               <AlertTriangle size={20} className="shrink-0 text-red-400" />
+               <span><strong>Error:</strong> {submitError}</span>
+             </div>
+           )}
 
            <div className="space-y-6 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar mb-6 flex-grow">
              
@@ -474,6 +516,9 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
              <button type="button" onClick={() => setStep(1)} className="px-6 py-4 rounded-lg font-bold bg-white/5 hover:bg-white/10 transition-all text-gray-300">Back</button>
              <button type="button" onClick={() => {
                if(!teamName.trim()) { setSubmitError("Please enter a Team Name"); return; }
+               const activeMembers = members.slice(0, teamSize);
+               const validationError = validateMembers(activeMembers);
+               if (validationError) { setSubmitError(validationError); return; }
                setSubmitError("");
                setStep(3);
              }} className="flex-1 bg-cyan-600 hover:bg-cyan-500 py-4 rounded-lg font-bold uppercase tracking-wide flex justify-center items-center gap-2 transition-all">Proceed to Payment <ChevronRight size={18} /></button>
@@ -516,7 +561,7 @@ export const DynamicRegistrationForm = ({ initialTracks }: Props) => {
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">1.</span> <span>Open PESU Academy.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">2.</span> <span>Navigate to the <strong>Payments</strong> section.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">3.</span> <span>Click on <strong>Miscellaneous Payments</strong>.</span></li>
-                  <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">4.</span> <span>Select the event <strong>Eclipse</strong> from the dropdown.</span></li>
+                  <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">4.</span> <span>Select the event <strong>Praxis</strong> from the dropdown.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">5.</span> <span>Complete the transaction and <strong>download the receipt</strong>.</span></li>
                   <li className="flex gap-3 items-start"><span className="text-cyan-400 font-mono font-bold shrink-0">6.</span> <span>Upload the downloaded payment receipts for each member.</span></li>
                 </ol>
