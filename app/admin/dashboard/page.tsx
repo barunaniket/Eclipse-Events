@@ -4,9 +4,10 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 // Added Clock to the imports here!
-import { ShieldAlert, Loader2, LogOut, CheckCircle2, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, Radio, RadioTower, Download, Trash2, FolderX, ChevronDown, ChevronUp } from "lucide-react";
+import { ShieldAlert, Loader2, LogOut, CheckCircle2, Eye, Users, FileText, Search, CreditCard, ShieldCheck, X, Clock, Radio, RadioTower, Download, Trash2, FolderX, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
+import { EventsPanel } from "@/components/events/EventsPanel";
 
-type TeamStatus = 'pending' | 'approved';
+type TeamStatus = 'pending' | 'approved' | 'events';
 
 export default function AdminDashboard() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
@@ -170,6 +171,11 @@ export default function AdminDashboard() {
     }
   };
 
+  const getAuthHeader = async (): Promise<Record<string, string>> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return { 'Authorization': `Bearer ${session?.access_token ?? ''}` };
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = '/';
@@ -323,6 +329,12 @@ export default function AdminDashboard() {
             >
               <CheckCircle2 size={16} /> Approved ({teams.filter(t => t.payment_status === 'approved').length})
             </button>
+            <button
+              onClick={() => setActiveTab('events')}
+              className={`flex-1 md:w-48 py-3 text-sm font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'events' ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              <CalendarDays size={16} /> Events
+            </button>
           </div>
 
           <div className="relative w-full lg:justify-self-end">
@@ -364,7 +376,11 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        <div className="space-y-4">
+        {activeTab === 'events' ? (
+          <EventsPanel getAuthHeader={getAuthHeader} />
+        ) : null}
+
+        <div className="space-y-4" style={{ display: activeTab === 'events' ? 'none' : undefined }}>
           {isLoadingData ? (
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-12 text-center text-cyan-500">
               <Loader2 className="animate-spin mx-auto mb-4" size={32} />
